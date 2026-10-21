@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" role="img" aria-label="eqray-flavor logo">
+  <defs>
+    <linearGradient id="eqray-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5B9DFF" />
+      <stop offset="100%" stop-color="#2B62F6" />
+    </linearGradient>
+  </defs>
+
+  <!-- 底：圆角方形 + 蓝色渐变 -->
+  <rect width="160" height="160" rx="38" fill="url(#eqray-bg)" />
+
+  <!-- 主体：eqray 首字母 E 的三条横杠，由实到虚表示分层架构 -->
+  <g fill="#FFFFFF">
+    <rect x="42" y="46" width="58" height="15" rx="7.5" opacity="1" />
+    <rect x="42" y="72.5" width="42" height="15" rx="7.5" opacity="0.8" />
+    <rect x="42" y="99" width="58" height="15" rx="7.5" opacity="0.62" />
+  </g>
+
+  <!-- 点缀：右上角的入口圆点，呼应 API 入口 -->
+  <circle cx="116" cy="53.5" r="8" fill="#9BE7FF" />
+</svg>

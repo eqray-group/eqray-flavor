@@ -1,0 +1,839 @@
+openapi: 3.0.3
+info:
+  title: eqray-flavor C 端会员 API
+  version: 1.0.0
+  description: |
+    会员（member）模块的 C 端接口，面向小程序 / H5 / App，前缀 `/api/v1/client/member`。
+
+    鉴权：请求头 `Authorization: Bearer <accessToken>`，令牌由登录接口签发。
+    该令牌与后台管理端令牌**作用域隔离，互不通用**；`/auth/*` 下的登录、发码、授权地址与续期
+    为免登录接口（文档中单独标了 `security: []`）。
+
+    会员身份一律由令牌解析，请求体与路径都**不接受 memberId**。
+
+    统一响应体：
+
+    - 成功：`{ "code": 0, "msg": "", "data": ... }`
+    - 失败：`{ "code": 1003005008, "msg": "会员账号已被禁用" }`（省略 `data`）
+    - HTTP 状态码**始终为 200**，成功与否只看响应体的 `code`；令牌缺失/失效返回 `code: 401`。
+    - 分页数据固定为 `{ "list": [...], "total": 0 }`；`pageNo` 缺省 1，`pageSize` 缺省 10、范围 1 ~ 200。
+servers:
+  - url: http://127.0.0.1:11111
+    description: 本地开发环境
+tags:
+  - name: C端-认证
+    description: 手机号验证码登录、第三方登录与绑定、令牌续期与注销
+  - name: C端-资料
+    description: 我的资料
+  - name: C端-地址
+    description: 我的收货地址
+  - name: C端-签到
+    description: 每日签到
+  - name: C端-记录
+    description: 积分流水、等级记录、签到记录、等级概览
+
+security:
+  - MemberBearer: []
+
+paths:
+  # ========================================================== 认证（免登录）
+  /api/v1/client/member/auth/sms-code:
+    post:
+      tags: [C端-认证]
+      summary: 发送短信验证码
+      description: |
+        6 位数字验证码，5 分钟有效、一次性使用；同一手机号 60 秒内不能重发，
+        每日每手机号最多 10 条。短信渠道与模板在后台「基础设施 → 短信」配置。
+      operationId: clientSendSmsCode
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mobile]
+              properties:
+                mobile: { type: string, maxLength: 20, example: '13800138000' }
+                scene: { type: string, maxLength: 32, default: login, description: 场景标识，登录固定传 login 或省略 }
+      responses:
+        '200': { $ref: '#/components/responses/OkNull' }
+
+  /api/v1/client/member/auth/sms-login:
+    post:
+      tags: [C端-认证]
+      summary: 手机号验证码登录（不存在则自动注册）
+      description: |
+        手机号不存在时自动创建会员：昵称默认「用户 + 手机号后 4 位」，等级为 0。
+        成功后返回会员令牌与会员档案。
+      operationId: clientSmsLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mobile, code]
+              properties:
+                mobile: { type: string, maxLength: 20 }
+                code: { type: string, maxLength: 6, description: 短信验证码 }
+      responses:
+        '200':
+          description: 令牌 + 会员档案
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResultResponse' }
+
+  /api/v1/client/member/auth/social-bind-login:
+    post:
+      tags: [C端-认证]
+      summary: 手机号登录并绑定第三方账号
+      description: 先手机号验证码登录（可自动注册），再绑定第三方账号，最后签发令牌；绑定失败不签发令牌。
+      operationId: clientSocialBindLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mobile, code, socialType, socialCode]
+              properties:
+                mobile: { type: string, maxLength: 20 }
+                code: { type: string, maxLength: 6, description: 短信验证码 }
+                socialType: { $ref: '#/components/schemas/SocialType' }
+                socialCode: { type: string, maxLength: 512, description: 第三方授权码 }
+                socialState: { type: string, maxLength: 64, description: state 透传参数 }
+      responses:
+        '200':
+          description: 令牌 + 会员档案
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResultResponse' }
+
+  /api/v1/client/member/auth/social/{type}/authorize-url:
+    get:
+      tags: [C端-认证]
+      summary: 获取第三方授权跳转地址
+      description: |
+        凭据取自后台「会员管理 → 社交客户端」配置。公众号 / 开放平台返回跳转地址；
+        小程序不需要跳转（前端直接 `wx.login` 取 code），返回空串。
+      operationId: clientSocialAuthorizeUrl
+      security: []
+      parameters:
+        - name: type
+          in: path
+          required: true
+          description: 渠道
+          schema: { $ref: '#/components/schemas/SocialType' }
+        - name: redirectUri
+          in: query
+          required: false
+          description: 回调地址；非小程序渠道必填
+          schema: { type: string }
+        - name: state
+          in: query
+          required: false
+          description: 透传参数
+          schema: { type: string, maxLength: 64 }
+      responses:
+        '200':
+          description: 授权地址
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          url: { type: string, description: 小程序渠道为空串 }
+
+  /api/v1/client/member/auth/social/login:
+    post:
+      tags: [C端-认证]
+      summary: 第三方快捷登录
+      description: |
+        已绑定才签发令牌；未绑定返回 `1_003_005_003`，**不会自动注册会员**。
+        新会员请先用手机号登录，再用 `POST /auth/social/bind` 完成绑定；
+        或用 `POST /auth/social-bind-login` 一步完成登录 + 绑定。
+      operationId: clientSocialLogin
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, code]
+              properties:
+                type: { $ref: '#/components/schemas/SocialType' }
+                code: { type: string, maxLength: 512 }
+                state: { type: string, maxLength: 64 }
+      responses:
+        '200':
+          description: 令牌 + 会员档案
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LoginResultResponse' }
+
+  /api/v1/client/member/auth/refresh:
+    post:
+      tags: [C端-认证]
+      summary: 刷新会员令牌
+      description: 用刷新令牌换一对新令牌，并重置刷新令牌有效期。
+      operationId: clientRefreshToken
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        '200':
+          description: 新令牌对
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/TokenPair' }
+
+  # ========================================================== 登录态（需令牌）
+  /api/v1/client/member/auth/me:
+    get:
+      tags: [C端-认证]
+      summary: 当前登录会员
+      description: '供前端刷新登录态；令牌缺失或失效时返回 code 401。'
+      operationId: clientMe
+      responses:
+        '200':
+          description: 会员档案
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/MemberUser' }
+
+  /api/v1/client/member/auth/logout:
+    post:
+      tags: [C端-认证]
+      summary: 退出登录
+      description: 删除 Redis 中的访问令牌；传了 `refreshToken` 时一并删除刷新令牌。
+      operationId: clientLogout
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                refreshToken: { type: string, description: 可选，缺失时只注销访问令牌 }
+      responses:
+        '200': { $ref: '#/components/responses/OkNull' }
+
+  /api/v1/client/member/auth/social/bind:
+    post:
+      tags: [C端-认证]
+      summary: 绑定第三方账号
+      description: 同一渠道只能绑定一个账号，已绑过返回 `1_003_005_009`。
+      operationId: clientSocialBind
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, code]
+              properties:
+                type: { $ref: '#/components/schemas/SocialType' }
+                code: { type: string, maxLength: 512 }
+                state: { type: string, maxLength: 64 }
+      responses:
+        '200': { $ref: '#/components/responses/OkNull' }
+
+  /api/v1/client/member/auth/social/bindings:
+    get:
+      tags: [C端-认证]
+      summary: 我的第三方绑定列表
+      operationId: clientSocialBindings
+      responses:
+        '200':
+          description: 绑定记录列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/MemberSocialBinding' }
+
+  /api/v1/client/member/auth/social/bindings/{id}:
+    delete:
+      tags: [C端-认证]
+      summary: 解绑第三方账号
+      description: 物理删除；至少保留一个绑定，否则返回 `1_003_005_006`。
+      operationId: clientSocialUnbind
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200': { $ref: '#/components/responses/OkNull' }
+
+  # ========================================================== 资料
+  /api/v1/client/member/profile:
+    get:
+      tags: [C端-资料]
+      summary: 我的资料
+      description: 含等级名、下一等级所需经验、标签名与分组名。
+      operationId: clientProfileShow
+      responses:
+        '200':
+          description: 资料详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/MemberProfile' }
+    put:
+      tags: [C端-资料]
+      summary: 修改我的资料
+      description: |
+        只允许改昵称、头像、真实姓名、性别、生日、地区；手机号、积分、等级、状态不可自助修改。
+        生日不能晚于今天，格式 `2006-01-02`，传空串表示清空。
+      operationId: clientProfileUpdate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [nickname]
+              properties:
+                nickname: { type: string, maxLength: 32 }
+                avatar: { type: string, maxLength: 255 }
+                name: { type: string, maxLength: 32, description: 真实姓名 }
+                sex: { type: integer, enum: [0, 1, 2], description: 0 未知 / 1 男 / 2 女 }
+                birthday: { type: string, maxLength: 20, example: '1990-01-01', description: 日期，传空串表示清空 }
+                areaId: { type: integer, minimum: 0, description: 地区编号 }
+      responses:
+        '200': { $ref: '#/components/responses/OkNull' }
+
+  # ========================================================== 地址
+  /api/v1/client/member/addresses:
+    get:
+      tags: [C端-地址]
+      summary: 我的收货地址列表
+      description: 默认地址排最前。
+      operationId: clientAddressList
+      responses:
+        '200':
+          description: 地址列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items: { $ref: '#/components/schemas/MemberAddress' }
+    post:
+      tags: [C端-地址]
+      summary: 新增收货地址
+      description: 首条地址自动置为默认；单会员上限 20 条，超出返回 `1_003_007_002`。
+      operationId: clientAddressCreate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddressRequest' }
+      responses:
+        '200':
+          description: 新地址 ID
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/IdResult' }
+
+  /api/v1/client/member/addresses/{id}:
+    put:
+      tags: [C端-地址]
+      summary: 修改收货地址
+      description: 只改内容，默认标记请走 `PUT /addresses/{id}/default`。
+      operationId: clientAddressUpdate
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddressRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/OkNull' }
+    delete:
+      tags: [C端-地址]
+      summary: 删除收货地址
+      description: 软删，只能删自己的地址，否则返回 `1_003_007_001`。
+      operationId: clientAddressDelete
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200': { $ref: '#/components/responses/OkNull' }
+
+  /api/v1/client/member/addresses/{id}/default:
+    put:
+      tags: [C端-地址]
+      summary: 设为默认地址
+      description: 事务内先清掉同会员其它默认标记再设置。
+      operationId: clientAddressSetDefault
+      parameters:
+        - $ref: '#/components/parameters/PathId'
+      responses:
+        '200': { $ref: '#/components/responses/OkNull' }
+
+  # ========================================================== 签到
+  /api/v1/client/member/sign:
+    post:
+      tags: [C端-签到]
+      summary: 每日签到
+      description: |
+        写签到记录、加积分与经验、写积分流水，等级有变化时补一条等级记录，同一事务完成。
+        今天已签返回 `1_003_008_001`；档位未配置返回 `1_003_008_003`。
+      operationId: clientSign
+      responses:
+        '200':
+          description: 本次签到结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/SignResult' }
+
+  /api/v1/client/member/sign/status:
+    get:
+      tags: [C端-签到]
+      summary: 今日签到状态
+      description: 返回是否已签、连续与累计天数、本月已签日期、今日与次日可得奖励，供前端渲染签到日历。
+      operationId: clientSignStatus
+      responses:
+        '200':
+          description: 签到状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/SignStatus' }
+
+  /api/v1/client/member/sign/records:
+    get:
+      tags: [C端-记录]
+      summary: 我的签到记录
+      operationId: clientSignRecords
+      parameters:
+        - $ref: '#/components/parameters/PageNo'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 签到记录分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/SignRecordPage' }
+
+  # ========================================================== 记录
+  /api/v1/client/member/points/records:
+    get:
+      tags: [C端-记录]
+      summary: 我的积分流水
+      operationId: clientPointRecords
+      parameters:
+        - $ref: '#/components/parameters/PageNo'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 积分流水分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/PointRecordPage' }
+
+  /api/v1/client/member/level/records:
+    get:
+      tags: [C端-记录]
+      summary: 我的等级变更记录
+      operationId: clientLevelRecords
+      parameters:
+        - $ref: '#/components/parameters/PageNo'
+        - $ref: '#/components/parameters/PageSize'
+      responses:
+        '200':
+          description: 等级记录分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/LevelRecordPage' }
+
+  /api/v1/client/member/levels:
+    get:
+      tags: [C端-记录]
+      summary: 等级列表与我当前的等级
+      description: 返回启用中的等级列表 + 当前会员的等级 ID 与经验，供前端画升级进度。
+      operationId: clientLevels
+      responses:
+        '200':
+          description: 等级列表与当前进度
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/BaseResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          list:
+                            type: array
+                            items: { $ref: '#/components/schemas/MemberLevel' }
+                          currentLevelId: { type: integer, format: int64 }
+                          experience: { type: integer }
+
+# ============================================================== components
+components:
+  securitySchemes:
+    MemberBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+      description: 会员访问令牌，由 `POST /auth/sms-login`、`/auth/social/login`、`/auth/social-bind-login` 签发，与后台令牌互不通用。
+
+  parameters:
+    PathId:
+      name: id
+      in: path
+      required: true
+      description: 雪花 ID
+      schema: { type: integer, format: int64 }
+    PageNo:
+      name: pageNo
+      in: query
+      required: false
+      description: 页码，小于 1 时按 1 处理
+      schema: { type: integer, minimum: 1, default: 1 }
+    PageSize:
+      name: pageSize
+      in: query
+      required: false
+      description: 每页条数，范围 1 ~ 200，非法值返回 400 业务码
+      schema: { type: integer, minimum: 1, maximum: 200, default: 10 }
+
+  responses:
+    OkNull:
+      description: 操作成功，`data` 为 null
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/BaseResponse' }
+
+  schemas:
+    BaseResponse:
+      type: object
+      description: 统一成功响应
+      required: [code, msg, data]
+      properties:
+        code: { type: integer, example: 0, description: 0 表示成功 }
+        msg: { type: string, example: '' }
+        data: { description: 业务数据，无返回值时为 null }
+
+    FailResponse:
+      type: object
+      description: 统一失败响应（省略 data）
+      required: [code, msg]
+      properties:
+        code: { type: integer, example: 1003005008, description: 业务错误码，非 0 }
+        msg: { type: string, example: 会员账号已被禁用 }
+
+    PageData:
+      type: object
+      required: [list, total]
+      properties:
+        list: { type: array, items: {} }
+        total: { type: integer, format: int64 }
+
+    IdResult:
+      type: object
+      properties:
+        id: { type: integer, format: int64, description: 新建记录的雪花 ID }
+
+    SocialType:
+      type: string
+      enum: [wechat_mini, wechat_mp, wechat_open]
+      description: 渠道：wechat_mini 小程序 / wechat_mp 公众号 / wechat_open 开放平台扫码
+
+    TokenPair:
+      type: object
+      properties:
+        accessToken: { type: string, description: 访问令牌，放 Authorization 头 }
+        refreshToken: { type: string, description: 刷新令牌，仅用于续期 }
+        expiresIn: { type: integer, format: int64, description: 访问令牌有效期（秒） }
+        refreshExpiresIn: { type: integer, format: int64, description: 刷新令牌有效期（秒） }
+
+    LoginResultResponse:
+      description: 登录成功：令牌对平铺 + member 会员档案
+      allOf:
+        - $ref: '#/components/schemas/BaseResponse'
+        - type: object
+          properties:
+            data:
+              allOf:
+                - $ref: '#/components/schemas/TokenPair'
+                - type: object
+                  properties:
+                    member: { $ref: '#/components/schemas/MemberUser' }
+
+    MemberUser:
+      type: object
+      description: 会员档案（member_user），登录与 /auth/me 返回
+      properties:
+        id: { type: integer, format: int64 }
+        creator: { type: string }
+        createdAt: { type: string, example: '2026-10-21 10:00:00' }
+        updater: { type: string }
+        updatedAt: { type: string, example: '2026-10-21 10:00:00' }
+        mobile: { type: string }
+        nickname: { type: string }
+        avatar: { type: string }
+        name: { type: string, description: 真实姓名 }
+        sex: { type: integer, enum: [0, 1, 2], description: 0 未知 / 1 男 / 2 女 }
+        birthday: { type: string, nullable: true, example: '1990-01-01 00:00:00' }
+        areaId: { type: integer }
+        levelId: { type: integer, format: int64 }
+        point: { type: integer, description: 当前积分 }
+        experience: { type: integer, description: 成长值 }
+        tagIds: { type: string, description: 标签 ID 列表，逗号分隔 }
+        mark: { type: string, description: 后台标记 }
+        registerIp: { type: string }
+        loginIp: { type: string }
+        loginDate: { type: string, nullable: true }
+        groupId: { type: integer, format: int64 }
+        status: { type: integer, enum: [0, 1], description: 0 禁用 / 1 启用 }
+
+    MemberProfile:
+      type: object
+      description: C 端「我的资料」，不含后台内部字段
+      properties:
+        id: { type: integer, format: int64 }
+        mobile: { type: string }
+        nickname: { type: string }
+        avatar: { type: string }
+        name: { type: string }
+        sex: { type: integer, enum: [0, 1, 2] }
+        birthday: { type: string, nullable: true }
+        areaId: { type: integer }
+        levelId: { type: integer, format: int64 }
+        level: { type: integer, description: 等级序号 }
+        levelName: { type: string }
+        point: { type: integer }
+        experience: { type: integer }
+        nextLevelExperience: { type: integer, description: 升级所需经验；满级时等于 experience }
+        nextLevelName: { type: string }
+        groupName: { type: string }
+        tagIds: { type: string }
+        tagNames: { type: array, items: { type: string } }
+        createdAt: { type: string }
+
+    MemberSocialBinding:
+      type: object
+      description: 会员第三方绑定（member_social_binding 合并社交账号信息）
+      properties:
+        id: { type: integer, format: int64, description: 绑定记录 ID，解绑时使用 }
+        socialType: { $ref: '#/components/schemas/SocialType' }
+        nickname: { type: string }
+        avatar: { type: string }
+        createdAt: { type: string }
+
+    MemberAddress:
+      type: object
+      description: 收货地址（member_address）
+      properties:
+        id: { type: integer, format: int64 }
+        creator: { type: string }
+        createdAt: { type: string }
+        updater: { type: string }
+        updatedAt: { type: string }
+        userId: { type: integer, format: int64, description: 所属会员 ID }
+        name: { type: string, description: 收件人 }
+        mobile: { type: string }
+        areaId: { type: integer }
+        detailAddress: { type: string }
+        defaultStatus: { type: integer, enum: [0, 1], description: 0 否 / 1 默认 }
+
+    AddressRequest:
+      type: object
+      required: [name, mobile, detailAddress]
+      properties:
+        name: { type: string, maxLength: 30, description: 收件人 }
+        mobile: { type: string, maxLength: 20 }
+        areaId: { type: integer, minimum: 0 }
+        detailAddress: { type: string, maxLength: 255 }
+        defaultStatus: { type: integer, enum: [0, 1], description: 仅新增时生效，1 表示设为默认 }
+
+    MemberLevel:
+      type: object
+      description: 会员等级（member_level）
+      properties:
+        id: { type: integer, format: int64 }
+        creator: { type: string }
+        createdAt: { type: string }
+        updater: { type: string }
+        updatedAt: { type: string }
+        level: { type: integer, description: 等级序号 1 ~ 99 }
+        name: { type: string }
+        icon: { type: string, description: 图标名 }
+        experience: { type: integer, description: 升级所需经验 }
+        discountPercent: { type: integer, description: 折扣百分比，100 表示无折扣 }
+        description: { type: string }
+        status: { type: integer, enum: [0, 1] }
+        sort: { type: integer }
+
+    MemberPointRecord:
+      type: object
+      description: 积分流水（member_point_record）
+      properties:
+        id: { type: integer, format: int64 }
+        creator: { type: string }
+        createdAt: { type: string }
+        updater: { type: string }
+        updatedAt: { type: string }
+        userId: { type: integer, format: int64 }
+        bizType: { type: integer, description: 0 其它 / 10 后台调整 / 20 签到 / 30 消费 }
+        bizId: { type: integer, format: int64 }
+        title: { type: string }
+        description: { type: string }
+        point: { type: integer, description: 正数增加 / 负数扣减 }
+        totalPoint: { type: integer, description: 变动后余额 }
+
+    PointRecordPage:
+      allOf:
+        - $ref: '#/components/schemas/PageData'
+        - type: object
+          properties:
+            list:
+              type: array
+              items: { $ref: '#/components/schemas/MemberPointRecord' }
+
+    MemberLevelRecord:
+      type: object
+      description: 等级变更记录（member_level_record）
+      properties:
+        id: { type: integer, format: int64 }
+        creator: { type: string }
+        createdAt: { type: string }
+        updater: { type: string }
+        updatedAt: { type: string }
+        userId: { type: integer, format: int64 }
+        levelId: { type: integer, format: int64, description: 变更后的等级 ID }
+        experience: { type: integer }
+        title: { type: string }
+        description: { type: string }
+
+    LevelRecordPage:
+      allOf:
+        - $ref: '#/components/schemas/PageData'
+        - type: object
+          properties:
+            list:
+              type: array
+              items: { $ref: '#/components/schemas/MemberLevelRecord' }
+
+    MemberSignRecord:
+      type: object
+      description: 签到记录（member_sign_record），一天一条
+      properties:
+        id: { type: integer, format: int64 }
+        creator: { type: string }
+        createdAt: { type: string }
+        updater: { type: string }
+        updatedAt: { type: string }
+        userId: { type: integer, format: int64 }
+        signDate: { type: string, description: 签到日期 }
+        day: { type: integer, description: 本次是连续第几天 }
+        point: { type: integer, description: 本次获得积分 }
+        experience: { type: integer, description: 本次获得经验 }
+
+    SignRecordPage:
+      allOf:
+        - $ref: '#/components/schemas/PageData'
+        - type: object
+          properties:
+            list:
+              type: array
+              items: { $ref: '#/components/schemas/MemberSignRecord' }
+
+    SignResult:
+      type: object
+      description: 签到成功返回
+      properties:
+        day: { type: integer, description: 本次是连续第几天 }
+        point: { type: integer, description: 本次获得积分 }
+        experience: { type: integer, description: 本次获得经验 }
+        totalPoint: { type: integer }
+        totalExperience: { type: integer }
+        continuousDays: { type: integer }
+        levelUp: { type: boolean, description: 本次签到是否触发升级 }
+        levelId: { type: integer, format: int64 }
+        levelName: { type: string }
+
+    SignStatus:
+      type: object
+      description: 今日签到状态
+      properties:
+        signedToday: { type: boolean }
+        continuousDays: { type: integer, description: 截至今天的连续天数：今天已签算今天，未签算到昨天 }
+        totalDays: { type: integer, format: int64, description: 累计签到天数 }
+        todayDay: { type: integer, description: 今天对应第几档 }
+        todayPoint: { type: integer }
+        todayExperience: { type: integer }
+        monthDays: { type: array, items: { type: string }, description: 本月已签到日期，格式 YYYY-MM-DD }
+        nextDayPoint: { type: integer, description: 明天档位的积分预览 }
+        nextDayExperience: { type: integer, description: 明天档位的经验预览 }

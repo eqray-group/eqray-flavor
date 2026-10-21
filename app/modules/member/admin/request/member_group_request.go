@@ -1,0 +1,33 @@
+package request
+
+import (
+	"github.com/goravel/framework/contracts/http"
+)
+
+// MemberGroupSaveRequest 是新增 / 编辑会员分组的入参。
+type MemberGroupSaveRequest struct {
+	Name   string `form:"name" json:"name"`
+	Status int8   `form:"status" json:"status"`
+	Remark string `form:"remark" json:"remark"`
+}
+
+// Rules 返回校验规则。
+func (r *MemberGroupSaveRequest) Rules(ctx http.Context) map[string]any {
+	return map[string]any{
+		"name":   "required|max:30",
+		"status": "required|integer|in:0,1",
+		"remark": "max:255",
+	}
+}
+
+// Messages 覆盖默认提示。
+func (r *MemberGroupSaveRequest) Messages(ctx http.Context) map[string]string {
+	return map[string]string{
+		"name.required":   "分组名不能为空",
+		"name.max":        "分组名不能超过 30 个字符",
+		"status.required": "分组状态不能为空",
+		"status.integer":  "分组状态取值不合法",
+		"status.in":       "分组状态取值不合法",
+		"remark.max":      "备注不能超过 255 个字符",
+	}
+}

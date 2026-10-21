@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160" width="160" height="160" role="img" aria-label="eqray-flavor">
+  <defs>
+    <linearGradient id="eqray-favicon-bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5B9DFF" />
+      <stop offset="100%" stop-color="#2B62F6" />
+    </linearGradient>
+  </defs>
+
+  <!-- 浏览器标签页专用：去掉圆点、加粗横杠，保证 16px 下仍能认出 E -->
+  <rect width="160" height="160" rx="34" fill="url(#eqray-favicon-bg)" />
+
+  <g fill="#FFFFFF">
+    <rect x="38" y="42" width="72" height="22" rx="11" opacity="1" />
+    <rect x="38" y="69" width="52" height="22" rx="11" opacity="0.8" />
+    <rect x="38" y="96" width="72" height="22" rx="11" opacity="0.62" />
+  </g>
+</svg>

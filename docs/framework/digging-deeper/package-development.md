@@ -1,0 +1,228 @@
+# 扩展包开发
+
+## 简介
+
+包是向 Goravel 添加功能的主要方式。 这些包可能包含专门用于增强 Goravel 应用程序的路由、控制器和配置。 本指南主要涵盖了那些特定于 Goravel 的包的开发。
+
+这里有一个关于包开发的官方示例：[goravel/example-package](https://github.com/goravel/example-package)
+
+## 创建包
+
+你可以使用 Artisan 命令便捷的创建一个包模板：
+
+```shell
+./artisan make:package sms
+```
+
+创建的文件默认保存在根目录 `packages` 文件夹中，你可以使用 `--root` 选项自定义：
+
+```shell
+./artisan make:package --root=pkg sms
+```
+
+## 服务提供者
+
+[服务提供者](../architecture-concepts/service-providers.md)是你的包和 Goravel 之间的连接点。 通常位于包的根目录中：`service_provider.go`。 服务提供者负责将事物绑定到 Goravel 的[服务容器](../architecture-concepts/service-container.md)并通知 Goravel 在哪里加载包资源。
+
+## 安装包
+
+当创建包时包含一个 `setup/setup.go` 文件，你可以在这个文件中定义包的安装逻辑，之后用户可以使用 `package:install` 命令安装包：
+
+```shell
+./artisan package:install github.com/goravel/example-package
+```
+
+下面是关于 `setup/setup.go` 文件定义安装过程的解析，有助于你编写自己包的安装逻辑：
+
+```go
+// setup/setup.go
+package main
+
+import (
+	"os"
+
+	"github.com/goravel/framework/packages"
+	"github.com/goravel/framework/packages/modify"
+	"github.com/goravel/framework/support/file"
+	"github.com/goravel/framework/support/path"
+)
+
+func main() {
+	// 初始化 setup 以获取路径
+	setup := packages.Setup(os.Args)
+
+	// 通过这种方式安装时，配置文件将自动发布到项目的配置目录。
+	// 你也可以手动发布此配置文件：./artisan vendor:publish --package=github.com/goravel/example-package
+	config, err := file.GetPackageContent(setup.Paths().Module().String(), "setup/config/hello.go")
+	if err != nil {
+		panic(err)
+	}
+
+	serviceProvider := "&hello.ServiceProvider{}"
+	moduleImport := setup.Paths().Module().Import()
+
+	setup.Install(
+		// 将服务提供者注册到 bootstrap/providers.go 中的 providers 切片
+		modify.RegisterProvider(moduleImport, serviceProvider),
+
+		// 将配置文件添加到配置目录
+		modify.File(path.Config("hello.go")).Overwrite(config),
+	).Uninstall(
+		// 从配置目录中移除配置文件
+		modify.File(path.Config("hello.go")).Remove(),
+
+		// 从 bootstrap/providers.go 中的 providers 切片中注销服务提供者
+		modify.UnregisterProvider(moduleImport, serviceProvider),
+	).Execute()
+}
+```
+
+如果包的导入路径较长或默认包名不方便使用，安装辅助函数支持 `"<别名> <导入路径>"` 格式的导入别名。安装和卸载时请使用相同的别名导入字符串：
+
+```go
+func main() {
+	setup := packages.Setup(os.Args)
+
+	serviceProvider := "&admin.ServiceProvider{}"
+	moduleImport := "admin " + setup.Paths().Module().Import()
+
+	setup.Install(
+		modify.RegisterProvider(moduleImport, serviceProvider),
+	).Uninstall(
+		modify.UnregisterProvider(moduleImport, serviceProvider),
+	).Execute()
+}
+```
+
+安装后，生成的导入将使用别名，注册项可以引用该别名：
+
+```go
+import (
+	admin "github.com/example/goravel-admin"
+)
+
+func Providers() []foundation.ServiceProvider {
+	return []foundation.ServiceProvider{
+		&admin.ServiceProvider{},
+	}
+}
+```
+
+别名导入字符串也适用于添加和删除路由、中间件、命令、任务、迁移、规则、过滤器、种子数据和服务提供者的安装辅助函数。
+
+## 资源
+
+### 配置
+
+通常，你需要将包的配置文件发布到应用程序的 `config` 目录。 这将允许你的包的用户轻松覆盖默认配置选项。 要允许发布配置文件，请从服务提供者的 `Boot` 方法中调用 `Publishes` 方法，该方法第一个参数为包名，第二个参数为当前包文件路径与项目路径的映射：
+
+```go
+func (receiver *ServiceProvider) Boot(app foundation.Application) {
+  app.Publishes("github.com/goravel/example-package", map[string]string{
+    "config/sms.go": app.ConfigPath("sms.go"),
+  })
+}
+```
+
+### 路由
+
+如果你的包包含[路由](../the-basics/routing.md)，可以使用 `app.MakeRoute()` 解析出 `facades.Route()`，然后添加到项目：
+
+```go
+func (receiver *ServiceProvider) Boot(app foundation.Application) {
+	route := app.MakeRoute()
+	route.Get("sms", ***)
+}
+```
+
+### 视图
+
+如果你的包提供了默认的[视图](../the-basics/views.md)，可以在服务提供者的 `Boot` 方法中使用 `LoadViewsFrom` 注册它们的目录：
+
+```go
+func (receiver *ServiceProvider) Boot(app foundation.Application) {
+    facades.View().LoadViewsFrom("/path/to/package/views")
+}
+```
+
+应用程序的 `resources/views` 目录优先级高于注册的包视图，因此用户可以通过创建同名文件来覆盖任何包视图。
+
+### 迁移
+
+如果你的包包含[数据库迁移](../database/migrations.md)，也可以使用 `Publishes` 方法进行发布：
+
+```go
+func (receiver *ServiceProvider) Boot(app foundation.Application) {
+  app.Publishes("github.com/goravel/example-package", map[string]string{
+    "migrations": app.DatabasePath("migrations"),
+  })
+}
+```
+
+### 模型
+
+如果包中定义了新的 [模型](../orm/getting-started.md)，它们也可以使用 `Publishes` 方法发布：
+
+```go
+func (receiver *ServiceProvider) Boot(app foundation.Application) {
+  app.Publishes("github.com/goravel/example-package", map[string]string{
+    "models": app.ModelPath("models"),
+  })
+}
+```
+
+## 命令
+
+可以在服务提供者中使用 `Commands` 方法注册 `Artisan` 命令，注册命令后，你可以使用[Artisan CLI](../digging-deeper/artisan-console.md)执行它们。
+
+```go
+func (receiver *ServiceProvider) Boot(app foundation.Application) {
+	app.Commands([]console.Command{
+		commands.NewSmsCommand(),
+	})
+}
+```
+
+## 公共资源
+
+你的包可能包含 JavaScript、CSS 和图像等资产。 要将这些资产发布到应用程序的 `public` 目录，请使用服务提供者的 `Publishes` 方法：
+
+```go
+func (receiver *ServiceProvider) Boot(app foundation.Application) {
+  app.Publishes("github.com/goravel/example-package", map[string]string{
+    "public": app.PublicPath("vendor"),
+  })
+}
+```
+
+## 发布文件组
+
+你可能希望允许用户发布包的配置文件，而不是被迫发布包的全部资产。你可以在包的服务提供者中调用 `Publishes` 方法时定义「标签」来做到这一点。 这允许你为用户提供发布某些文件的选项，如配置文件，而不必发布所有软件包的资产。 例如，让我们使用标签在包的服务提供者的 `Boot` 方法中为 `sms` 包定义两个发布组（`sms-config` 和 `sms-migrations`）。
+
+```go
+func (receiver *ServiceProvider) Boot(app foundation.Application) {
+  app.Publishes("github.com/goravel/example-package", map[string]string{
+    "config/sms.go": app.ConfigPath("sms.go"),
+  }, "sms-config")
+  app.Publishes("github.com/goravel/example-package", map[string]string{
+    "migrations": app.DatabasePath("migrations"),
+  }, "sms-migrations")
+}
+```
+
+## 发布资源
+
+在项目中，你可以使用 Artisan 命令 `vendor:publish` 发布包中注册的资源：
+
+```shell
+./artisan vendor:publish --package={你的包名}
+```
+
+该命令可以使用如下参数：
+
+| 参数名        | 别名 | 作用                                                                                                                                          |
+| ---------- | -- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| --package  | -p | 包名，可以使远程包，例如：github.com/goravel/example-package，也可以使用本地包名：./packages/example-package，注意当使用本地包名时，需要以 `./` 开头 |
+| --tag      | -t | 资源分组                                                                                                                                        |
+| --force    | -f | 请覆盖任何已经存在的文件                                                                                                                                |
+| --existing | -e | 只发布已存在的资源，并强制覆盖                                                                                                                             |

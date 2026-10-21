@@ -1,0 +1,11 @@
+.idea
+.vscode
+.DS_Store
+# 仅忽略根目录的后端环境变量；ui/.env* 无敏感信息，需要随仓库提交
+/.env
+/.env.*
+!/.env.example
+# 仅忽略根目录运行时目录；前端 src/utils/storage 是源码，必须提交
+/storage
+tmp
+build
