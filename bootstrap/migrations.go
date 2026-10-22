@@ -44,6 +44,9 @@ func Migrations() []schema.Migration {
 		&migrations.M20261020000031CreateInfraSmsTemplateTable{},
 		&migrations.M20261020000032SeedInfraSms{},
 		&migrations.M20261020000033SeedInfraSmsMenu{},
+		&migrations.M20261022000018CreateInfraDistrictTable{},
+		&migrations.M20261022000019SeedInfraDistrictMenu{},
+		&migrations.M20261022000020SeedInfraAmapConfig{},
 
 		// ---------- member ----------
 		&migrations.M20261020000014CreateMemberUserTable{},
@@ -65,5 +68,26 @@ func Migrations() []schema.Migration {
 		&migrations.M20261020000034CreateMemberSignInConfigTable{},
 		&migrations.M20261020000036SeedMemberSignInConfig{},
 		&migrations.M20261020000037SeedMemberSignConfigMenu{},
+
+		// ---------- store ----------
+		&migrations.M20261021000001CreateStoreTable{},
+		&migrations.M20261021000002SeedStoreMenu{},
+		&migrations.M20261022000001SeedStoreHeadquarter{},
+		&migrations.M20261022000002SeedStoreDicts{},
+		&migrations.M20261022000003AlterStoreAddDeliveryEnabled{},
+		&migrations.M20261022000004CreateStoreEmployeeTable{},
+		&migrations.M20261022000005SeedStoreRoleDict{},
+		&migrations.M20261022000006SeedStoreEmployeeMenu{},
+		&migrations.M20261022000007CreateStoreTableAreaTable{},
+		&migrations.M20261022000008CreateStoreTableTable{},
+		&migrations.M20261022000009SeedStoreTableStatusDict{},
+		&migrations.M20261022000010SeedStoreTableMenu{},
+		&migrations.M20261022000011CreateStoreRiderTable{},
+		&migrations.M20261022000012SeedStoreRiderStatusDict{},
+		&migrations.M20261022000013SeedStoreRiderMenu{},
+		&migrations.M20261022000014CreateStorePrinterTable{},
+		&migrations.M20261022000015CreateStorePrintTemplateTable{},
+		&migrations.M20261022000016SeedStorePrintDicts{},
+		&migrations.M20261022000017SeedStorePrintMenu{},
 	}
 }

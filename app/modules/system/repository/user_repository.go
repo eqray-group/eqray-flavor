@@ -5,6 +5,8 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/goravel/framework/contracts/database/db"
+
 	"eqray-flavor/app/facades"
 	baseEnums "eqray-flavor/app/modules/base/enums"
 	baseErrs "eqray-flavor/app/modules/base/errs"
@@ -227,4 +229,64 @@ func (r *UserRepository) UpdateLoginInfo(ctx context.Context, id types.ID, ip st
 		})
 
 	return err
+}
+
+// FindByIDs 批量查询未软删的用户，供跨模块只读账号目录使用。
+// 入参：ids 用户 ID 集合；返回用户列表，未命中的 ID 直接忽略。
+func (r *UserRepository) FindByIDs(ctx context.Context, ids []types.ID) ([]model.SystemUserModel, error) {
+	list := make([]model.SystemUserModel, 0)
+	if len(ids) == 0 {
+		return list, nil
+	}
+
+	values := make([]any, 0, len(ids))
+	for _, id := range ids {
+		if id > 0 {
+			values = append(values, id)
+		}
+	}
+	if len(values) == 0 {
+		return list, nil
+	}
+
+	if err := facades.DB().WithContext(ctx).Table(userTable).
+		WhereIn("id", values).
+		WhereNull("deleted_at").
+		OrderBy("id").
+		Get(&list); err != nil {
+		return nil, err
+	}
+
+	return list, nil
+}
+
+// SearchEnabled 按账号 / 昵称 / 手机号搜索启用用户，供员工选择等下拉场景使用。
+// 入参：keyword 关键字（空串不过滤）、limit 最大返回数；返回用户列表。
+func (r *UserRepository) SearchEnabled(ctx context.Context, keyword string, limit int) ([]model.SystemUserModel, error) {
+	list := make([]model.SystemUserModel, 0)
+	if limit <= 0 {
+		limit = 20
+	}
+	if limit > 100 {
+		limit = 100
+	}
+
+	query := facades.DB().WithContext(ctx).Table(userTable).
+		Where("status", baseEnums.CommonStatusEnabled).
+		WhereNull("deleted_at")
+	if keyword != "" {
+		like := "%" + keyword + "%"
+		// 关键字命中账号、昵称或手机号，分组包裹避免与状态条件串成 OR
+		query = query.Where(func(q db.Query) db.Query {
+			return q.WhereLike("username", like).
+				OrWhereLike("nickname", like).
+				OrWhereLike("mobile", like)
+		})
+	}
+
+	if err := query.OrderByDesc("id").Limit(uint64(limit)).Get(&list); err != nil {
+		return nil, err
+	}
+
+	return list, nil
 }

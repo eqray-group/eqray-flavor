@@ -35,20 +35,33 @@ func Page(ctx http.Context, list any, total int64) http.Response {
 // Fail 统一输出失败响应：业务异常按自身错误码返回，非预期错误先记日志再按 500 返回。
 // HTTP 状态码始终为 200，业务结果只由响应体的 code 表达（docs 8.1）。
 func Fail(ctx http.Context, err error) http.Response {
-	var be *errs.BusinessError
-	code := errs.InternalServerError.Code
-	message := errs.InternalServerError.Msg
-	if errors.As(err, &be) {
-		code = be.Code()
-		message = be.Msg()
-	} else {
-		message = err.Error()
-		facades.Log().WithContext(ctx.Context()).Error(err.Error())
-	}
+	code, message := failureDetail(ctx, err)
 	ctx.WithValue(businessCodeKey, code)
 	ctx.WithValue(businessMessageKey, message)
 
 	return ctx.Response().Success().Json(response.Fail(err))
+}
+
+// AbortFail 写出业务失败响应并中断后续中间件/处理器。
+// 适用于门店越权等需要固定业务错误码、又不能继续执行的路由前置校验。
+func AbortFail(ctx http.Context, err error) {
+	code, message := failureDetail(ctx, err)
+	ctx.WithValue(businessCodeKey, code)
+	ctx.WithValue(businessMessageKey, message)
+
+	ctx.Response().Success().Json(response.Fail(err)).Abort()
+}
+
+// failureDetail 提取失败响应的业务码与日志文案，非业务错误统一按 500 记日志。
+func failureDetail(ctx http.Context, err error) (int, string) {
+	var be *errs.BusinessError
+	if errors.As(err, &be) {
+		return be.Code(), be.Msg()
+	}
+
+	facades.Log().WithContext(ctx.Context()).Error(err.Error())
+
+	return errs.InternalServerError.Code, err.Error()
 }
 
 // MarkFail 只把失败码与文案写入上下文，供日志中间件记录，不输出响应。

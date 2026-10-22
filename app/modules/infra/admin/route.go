@@ -20,6 +20,7 @@ func Register() {
 	apiLogController := controller.NewApiLogController()
 	smsChannelController := controller.NewInfraSmsChannelController()
 	smsTemplateController := controller.NewInfraSmsTemplateController()
+	districtController := controller.NewInfraDistrictController()
 
 	facades.Route().Prefix(Prefix).Group(func(r route.Router) {
 		auth := r.Middleware(&baseMiddleware.TokenAuth{})
@@ -52,6 +53,8 @@ func Register() {
 		perm("infra:file-config:delete").Middleware(operate("文件配置", "删除配置")).
 			Delete("/file-configs/{id}", fileConfigController.Destroy)
 
+		// 公开参数取值：前端运行时需要（高德 AK 等），只要求登录态，不挂权限点
+		auth.Get("/configs/value", configController.Value)
 		perm("infra:config:list").Get("/configs", configController.Index)
 		perm("infra:config:create").Middleware(operate("参数配置", "新增参数")).
 			Post("/configs", configController.Store)
@@ -84,5 +87,17 @@ func Register() {
 			Put("/sms-templates/{id}", smsTemplateController.Update)
 		perm("infra:sms-template:delete").Middleware(operate("短信管理", "删除模板")).
 			Delete("/sms-templates/{id}", smsTemplateController.Destroy)
+
+		// 行政区划：静态路径必须排在 /districts/{id} 之前
+		perm("infra:district:list").Get("/districts/tree", districtController.Tree)
+		perm("infra:district:list").Get("/districts/options", districtController.Options)
+		perm("infra:district:list").Get("/districts", districtController.Index)
+		perm("infra:district:list").Get("/districts/{id}", districtController.Show)
+		perm("infra:district:create").Middleware(operate("区划管理", "新增区划")).
+			Post("/districts", districtController.Store)
+		perm("infra:district:update").Middleware(operate("区划管理", "编辑区划")).
+			Put("/districts/{id}", districtController.Update)
+		perm("infra:district:delete").Middleware(operate("区划管理", "删除区划")).
+			Delete("/districts/{id}", districtController.Destroy)
 	})
 }

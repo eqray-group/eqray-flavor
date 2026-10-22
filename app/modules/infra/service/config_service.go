@@ -158,6 +158,17 @@ func (s *ConfigService) GetString(ctx context.Context, key, defaultValue string)
 	return m.Value
 }
 
+// GetVisibleValue 读取允许公开的参数值，用于前端运行时需要的第三方 Key（如高德地图 AK）。
+// 入参：key 参数键；返回参数值与是否可公开（visible=1 且值非空），不可公开时 value 为空串。
+func (s *ConfigService) GetVisibleValue(ctx context.Context, key string) (string, bool) {
+	m, err := s.configs.FindByKey(ctx, key)
+	if err != nil || m == nil || m.Visible != 1 || m.Value == "" {
+		return "", false
+	}
+
+	return m.Value, true
+}
+
 // GetInt 读取整型参数值；未配置或无法解析时返回默认值。
 func (s *ConfigService) GetInt(ctx context.Context, key string, defaultValue int) int {
 	value := s.GetString(ctx, key, "")

@@ -11,6 +11,14 @@ export function fetchGetConfigList(params: Api.Infra.ConfigSearchParams) {
   })
 }
 
+// 读取允许公开的参数值（visible=1），如高德地图 AK；只要求登录态，不需要权限点
+export function fetchGetConfigValue(key: string) {
+  return request.get<Api.Infra.ConfigValue>({
+    url: '/api/v1/infra/configs/value',
+    params: { key }
+  })
+}
+
 /**
  * 新增参数配置
  * @param data 参数分组、名称、键、值等信息

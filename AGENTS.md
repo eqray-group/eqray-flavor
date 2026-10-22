@@ -12,7 +12,7 @@ Goravel 文档本地副本在 `docs/framework/`（按需查，不要批量读）
   `web/system-manage-ui` 可用，`web/merchant-manage-ui`、`mobile/customer-uniapp`、`mobile/rider-uniapp` 是占位目录，对应模块开工前不要写代码。详见 `template/README.md`。
 - 认证：账号密码 + 图形验证码，访问 / 刷新双令牌；RBAC 权限点 `模块:资源:动作`，`SUPER_ADMIN` 直接放行；菜单由后端 `system_menu` 下发（`VITE_ACCESS_MODE=backend`）。
 - 初始账号 `admin` / `admin123`。
-- 模块：`system`（认证、用户、角色、菜单、字典、登录/操作日志）、`infra`（参数、文件、文件配置、API 日志、短信）、`member`（会员、等级、积分、签到、地址、社交登录）。
+- 模块：`system`（认证、用户、角色、菜单、字典、登录/操作日志）、`infra`（参数、文件、文件配置、API 日志、短信）、`member`（会员、等级、积分、签到、地址、社交登录）、`store`（门店组织树、门店员工与可见门店数据权限、桌台区域与桌台、骑手档案、打印设备与模板）。
 - 定时任务只在 `bootstrap/schedule.go`：每天 03:10 清理 API 访问日志（`bootstrap/app.go` 的 `WithSchedule` 装载）。任务后台页面已删除，不要再引入。
 
 ## 2. 命令
@@ -43,7 +43,7 @@ app/modules/<模块>/
 bootstrap/                # app.go 装配、migrations.go 注册表、schedule.go 调度
 database/migrations/      # 一个表一个 create_*，种子单独 seed_*
 template/
-  web/system-manage-ui/    # 管理后台：src/{api,views,types} 按 system / infra / member 分
+  web/system-manage-ui/    # 管理后台：src/{api,views,types} 按 system / infra / member / store 分
   web/merchant-manage-ui/  # 商户端（占位）
   mobile/customer-uniapp/  # 顾客端（占位）
   mobile/rider-uniapp/     # 骑手端（占位，走后台账号）
@@ -54,6 +54,7 @@ template/
 | `system` | `/api/v1/system` | TokenAuth + Permission + OperateLog | — | — |
 | `infra` | `/api/v1/infra` | 同上 | `/api/v1/client/infra`（仅上传） | MemberAuth |
 | `member` | `/api/v1/member` | 同上 | `/api/v1/client/member` | MemberAuth |
+| `store` | `/api/v1/store` | 同上 | — | — |
 
 - 取当前人：管理端 `support.UserID`，C 端 `support.MemberID`。
 - C 端 `request` **禁止出现 memberId**，按会员过滤一律由 service 用令牌里的 ID 强制带条件。
@@ -115,9 +116,9 @@ facades.Route().Prefix("/api/v1/member").Group(func(r route.Router) {
 
 - `result.Success(ctx, data)` / `result.Fail(ctx, err)` / `result.Page(ctx, list, total)`；业务错误 HTTP 200，`code != 0`。
 - 分页一律 `param.FromQuery(ctx)`（默认 10 条），**不要手拼 `param.Page{}` 再 Normalize**。
-- 错误码 `1_{模块}_{子模块}_{序号}`：模块 `001` infra、`002` system、`003` member。
-- 子模块号登记在各 `errs/*_error.go` 文件头，新增前先看占用情况（member：user 001 / level 002 / tag 003 / group 004 / social 005 / auth 006 / address 007 / sign 008）。
-- 中间件里 `Abort` 的中断必须调 `result.MarkFail(ctx, code)`，否则错误日志 `message` 为空。
+- 错误码 `1_{模块}_{子模块}_{序号}`：模块 `001` infra、`002` system、`003` member、`004` store。
+- 子模块号登记在各 `errs/*_error.go` 文件头，新增前先看占用情况（member：user 001 / level 002 / tag 003 / group 004 / social 005 / auth 006 / address 007 / sign 008；store：store 001 / table 002 / employee 003 / printer 004 / rider 005）。
+- 中间件里 `Abort` 的中断必须调 `result.MarkFail(ctx, code)` 或 `result.AbortFail(ctx, err)`，否则错误日志 `message` 为空。
 
 ### 4.5 迁移
 
@@ -157,7 +158,49 @@ facades.Route().Prefix("/api/v1/member").Group(func(r route.Router) {
 - C 端自助接口都在 `memberAuth` 分组：`/profile`、`/addresses`（5 个）、`/sign` + `/sign/status` + `/sign/records`、`/points/records`、`/level/records`、`/levels`。
 - 只读接口先过 `MemberService.EnsureActive`，禁用会员报 `MemberDisabled`。
 
-### 4.9 注释
+### 4.9 门店与数据权限
+
+- 门店级接口统一读请求头 `X-Store-Id`，兼容查询串 `storeId`；中间件在
+  `app/modules/store/middleware/store_context.go`，通过后写 `support.StoreID(ctx)`。
+  上下文只能指向未删除的 `type=3` 门店，总部 / 大区节点会被拒绝。
+- 未带门店标识不拦截：服务层按当前用户可见门店集合过滤，空集合返回空列表。
+- 可见范围：超管全量；**没有任何员工关联**视为总部账号、全量；存在任何关联（含禁用）
+  即受限；只有启用员工记录 + 未删除 `type=3` 门店有效。
+- 缓存键 `store:visible:<userID>`，TTL 30 分钟；编码 `a` 全量、`r:1,2` 受限、
+  `r:` 受限但为空；员工增删改后必须调 `StoreService.InvalidateScope(userID)`。
+- 门店上下文接口的请求体门店必须与 `support.StoreID` 一致，否则报
+  `StoreContextMismatch`；员工新增未传门店时按上下文回填，编辑未传时沿用原门店。
+- `store_employee` 物理删除，唯一键 `(store_id,user_id)`；角色枚举存 `role`，
+  字典 `store_role_type`；员工权限点 `store:employee:list/create/update/delete`。
+- 骑手档案 `store_rider` 与员工一对一，`employee_id` 唯一，软删除；状态 `1` 空闲 /
+  `2` 接单中 / `3` 配送中 / `4` 休息 / `5` 停用，字典 `store_rider_status`；权限点
+  `store:rider:list/create/update/delete`。抢单 / 释放名额只走仓储条件更新
+  （`TryAccept` / `Release`），编辑停用状态与删除也要带 `current_orders` 条件，不允许先查再改。
+- 骑手自动开通账号通过 `support.AccountProvisioner`（system 实现），手机号为账号，
+  初始密码只在创建响应返回一次；自动账号不分配 system 角色，骑手端接口不依赖 RBAC。
+- 停用骑手同步禁用员工；有进行中订单时禁止休息 / 停用 / 删除；并发上限不能低于当前负载。
+  员工页不能修改已关联骑手档案的门店 / 账号 / 角色 / 状态，也不能直接删除员工。
+- 打印设备 `store_printer` 按门店归属，唯一键 `(store_id,device_no)`，物理删除；`config`
+  只存非敏感 JSON，`secret` 存 AES 密文、`secret_mask` 存末四位脱敏值。列表 / 编辑
+  只返回 `secretMask` 与 `hasSecret`，禁止新增回显明文的接口；编辑 `secret` 留空表示
+  沿用原密钥。权限点 `store:printer:list/create/update/delete`。
+- 打印模板 `store_print_template` 唯一键 `(store_id,printer_type,print_type)`，物理删除；
+  `version` 新建为 1，只有正文变化才 +1，客户端不能提交版本号。权限点
+  `store:print-template:list/create/update/delete`。打印任务、厂商适配与模板快照属
+  T-PRINT-01/02，不要在 store 模块提前建任务表。
+- 桌台区域 `store_table_area` 按门店归属，唯一键 `(store_id,name)`，物理删除；
+  区域下仍有桌台时禁止删除。权限点 `store:table-area:list/create/update/delete`。
+- 桌台 `store_table` 的 `code` 全局唯一、`(store_id,name)` 唯一，物理删除；桌码默认
+  按「门店编码-桌号」生成且创建后不可改。批量生成按「前缀 + 补零序号」，单次最多
+  100 张，补零宽度取整批最大序号位数且至少两位；权限点
+  `store:table:list/create/update/delete/operate`。
+- 桌台状态 `1` 空闲 / `2` 使用中 / `3` 待清台，字典 `table_status`；开台仅允许空闲，
+  清台允许使用中或待清台；使用中或仍有 `current_order_id` 的桌台禁止删除。
+- `/api/v1/store/stores/visible` 只挂 TokenAuth，供切换器使用，不要求门店列表权限。
+- 前端门店上下文在 `useStoreContextStore`（持久化 `currentStoreId` / `currentStoreName`），
+  HTTP 拦截器注入请求头；退出登录与切换账号时清空；切换后刷新当前页。
+
+### 4.10 注释
 
 每个函数/方法都要文档注释：**做什么 + 关键约束 + 入参 + 返回**，中文描述业务语义。
 
@@ -182,7 +225,7 @@ func (c *UserController) Index(ctx http.Context) http.Response {
 - 新增/编辑/删除后分别调 `refreshCreate` / `refreshUpdate` / `refreshRemove`；工具条刷新用 `refreshData`。
 - 参考：`src/views/member/sign-config/index.vue`、`src/views/infra/file-config/index.vue`。
 
-新增页面流程：`src/api/<模块>/xxx.ts` 封装接口 → `src/types/api/api.d.ts` 加 `Api.<模块>` 类型 →
+新增页面流程：`src/api/<模块>/xxx.ts` 封装接口 → `src/types/api/<模块>.d.ts` 加 `Api.<模块>` 类型 →
 `src/views/<模块>/xxx/index.vue` 写列表页（`modules/` 放弹窗）→ 后端补菜单 + 权限点 seed →
 重新登录验证菜单与按钮。
 
@@ -195,9 +238,9 @@ func (c *UserController) Index(ctx http.Context) http.Response {
 
 ### 5.3 API 与类型
 
-- 接口封装在 `src/api/{system,infra,member}/*.ts`，`request.get<T>` 返回后端 `data`，POST/PUT 用 `params`（http 层转 JSON）。
+- 接口封装在 `src/api/{system,infra,member,store}/*.ts`，`request.get<T>` 返回后端 `data`，POST/PUT 用 `params`（http 层转 JSON）。
 - 雪花 ID 一律 `string`。
-- 类型集中在 `src/types/api/api.d.ts` 的 `namespace Api`：`Auth` / `SystemManage` / `Infra` / `Member` / `Dashboard` / `Common`。system 模块是 **`SystemManage`**，不是 `System`。
+- 类型按模块拆在 `src/types/api/{common,auth,infra,store,member,dashboard,system}.d.ts`，各自 `declare namespace Api { namespace Xxx { ... } }`，声明合并到全局 `Api`，使用处不写 import。system 模块的命名空间是 **`SystemManage`**，不是 `System`。
 
 ### 5.4 路由名与样式
 
@@ -211,7 +254,7 @@ func (c *UserController) Index(ctx http.Context) http.Response {
 3. **`RowsAffected == 0` 不等于记录不存在**（新旧值相同）：再查一次存在性，参考 `FileConfigRepository.SetMaster`。
 4. **`v-auth` 同时读 `user.info.buttons` 与 `meta.authList`**：后端动态菜单没有 `authList`，只读它会隐藏全部按钮。
 5. **权限缓存 30 分钟**：改菜单/权限后要前移 `rbac:version`，前端还需重新登录清本地路由。
-6. **中间件 `Abort` 不调 `MarkFail`** → 错误日志 `message` 为空。
+6. **中间件 `Abort` 不调 `MarkFail` / `AbortFail`** → 错误日志 `message` 为空。
 7. **S3/MinIO**：`usePathStyle=true`，`url` 前缀决定访问地址，Bucket 未公开读会 403。
 
 ## 7. 排查表
@@ -222,10 +265,13 @@ func (c *UserController) Index(ctx http.Context) http.Response {
 | 菜单不显示 | 迁移是否注册执行；`system_role_menu` 是否授权；`rbac:version`；是否重新登录 |
 | 按钮不显示 | 权限点是否在 `system_menu.permission`；角色是否授权；`info.buttons` 是否刷新 |
 | 接口 403 | 路由 `perm(...)` 与前端权限点是否一致 |
-| 接口 500 且日志无信息 | 是否 `Abort` 未 `MarkFail`；看 `storage/logs` |
+| 接口 500 且日志无信息 | 是否 `Abort` 未 `MarkFail` / `AbortFail`；看 `storage/logs` |
 | 文件配置出现多个主配置 | `ClearMaster` 是否用了 `Where("id <> ?", id)` |
 | 上传 404 / 图片 403 | local 查 `/storage` 静态路由；s3 查 `url` 前缀与 Bucket 策略 |
 | 签到报「档位未配置」 | `member_sign_in_config` 是否有 `status=1` 档位；`20261020000036` 是否执行 |
+| 打印设备号重复绑定 | 同一 `store_id` 是否已有该 `device_no`（`uk_store_device`）；请求头门店是否正确 |
+| 打印接口出现明文密钥 | 列表 DTO 是否误带 `Secret`；模型必须保持 `json:"-"`，且不要新增回显明文的接口 |
+| 模板版本没有递增 | 只有 `content` 变化才 +1；仅改名称 / 纸宽 / 状态不递增 |
 
 ## 8. 提交清单
 

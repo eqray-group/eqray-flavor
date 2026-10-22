@@ -3,6 +3,7 @@ package controller
 import (
 	"github.com/goravel/framework/contracts/http"
 
+	baseErrs "eqray-flavor/app/modules/base/errs"
 	"eqray-flavor/app/modules/base/param"
 	"eqray-flavor/app/modules/base/result"
 	"eqray-flavor/app/modules/infra/admin/request"
@@ -40,6 +41,23 @@ func (c *ConfigController) Index(ctx http.Context) http.Response {
 	}
 
 	return result.Page(ctx, list, total)
+}
+
+// Value 读取允许公开的参数值，供前端运行时使用（如高德地图 AK）。
+// 入参：key（查询串）；返回 { key, value }，未配置或不可公开时 value 为空串。
+// 只挂登录态不挂权限点：这类 Key 是浏览器端必须拿到的公开配置，按权限点挡会无法初始化组件。
+func (c *ConfigController) Value(ctx http.Context) http.Response {
+	key := ctx.Request().Query("key")
+	if key == "" {
+		return result.Fail(ctx, baseErrs.WithMsg(baseErrs.BadRequest, "参数键不能为空"))
+	}
+
+	value, ok := c.service.GetVisibleValue(ctx.Context(), key)
+	if !ok {
+		return result.Success(ctx, map[string]any{"key": key, "value": ""})
+	}
+
+	return result.Success(ctx, map[string]any{"key": key, "value": value})
 }
 
 // Store 新增参数配置；配置键唯一，重复时返回业务错误码。

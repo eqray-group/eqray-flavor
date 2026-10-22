@@ -41,6 +41,7 @@ import { AppRouteRecord } from '@/types/router'
 import { setPageTitle } from '@/utils/router'
 import { resetRouterState } from '@/router/guards/beforeEach'
 import { useMenuStore } from './menu'
+import { useStoreContextStore } from './store-context'
 import { StorageConfig } from '@/utils/storage/storage-config'
 
 /**
@@ -159,6 +160,8 @@ export const useUserStore = defineStore(
       accessToken.value = ''
       // 清空刷新令牌
       refreshToken.value = ''
+      // 清空门店上下文，避免下一个账号携带旧门店请求头
+      useStoreContextStore().clear()
       // 注意：不清空工作台标签页，等下次登录时根据用户判断
       // 移除iframe路由缓存
       sessionStorage.removeItem('iframeRoutes')
@@ -197,6 +200,7 @@ export const useUserStore = defineStore(
         const worktabStore = useWorktabStore()
         worktabStore.opened = []
         worktabStore.keepAliveExclude = []
+        useStoreContextStore().clear()
       }
 
       // 清除临时存储

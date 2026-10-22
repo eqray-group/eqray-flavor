@@ -4,7 +4,7 @@ package errs
 import baseErrs "eqray-flavor/app/modules/base/errs"
 
 // infra 模块业务错误码：1-001-{子模块}-{错误码}，
-// config 占用 001，file 占用 002，file-config 占用 003，sms 占用 004。
+// config 占用 001，file 占用 002，file-config 占用 003，sms 占用 004，district 占用 005。
 var (
 	InfraFileUploadFailed   = baseErrs.ErrorCode{Code: 1_001_002_001, Msg: "文件上传失败"}
 	InfraFileTypeNotAllowed = baseErrs.ErrorCode{Code: 1_001_002_002, Msg: "不支持的文件类型，仅支持 jpg / jpeg / png / gif / webp / bmp"}
@@ -26,4 +26,11 @@ var (
 	InfraSmsTemplateCodeExists = baseErrs.ErrorCode{Code: 1_001_004_004, Msg: "短信模板代码【%v】已存在"}
 	InfraSmsSendFailed         = baseErrs.ErrorCode{Code: 1_001_004_005, Msg: "短信发送失败：%v"}
 	InfraSmsChannelInUse       = baseErrs.ErrorCode{Code: 1_001_004_006, Msg: "渠道【%v】下仍有模板，不可删除"}
+
+	// district 占用 005 子模块：行政区划数据管理
+	InfraDistrictNotExists     = baseErrs.ErrorCode{Code: 1_001_005_001, Msg: "行政区划【%v】不存在"}
+	InfraDistrictCodeExists    = baseErrs.ErrorCode{Code: 1_001_005_002, Msg: "行政编码【%v】已存在"}
+	InfraDistrictParentMissing = baseErrs.ErrorCode{Code: 1_001_005_003, Msg: "上级行政区划【%v】不存在"}
+	InfraDistrictParentCycle   = baseErrs.ErrorCode{Code: 1_001_005_004, Msg: "上级区划不能是自身或下级区划"}
+	InfraDistrictHasChildren   = baseErrs.ErrorCode{Code: 1_001_005_005, Msg: "区划【%v】下仍有子级，不可删除"}
 )

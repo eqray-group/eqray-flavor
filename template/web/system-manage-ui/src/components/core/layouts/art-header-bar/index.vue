@@ -61,6 +61,9 @@
       </div>
 
       <div class="flex-c gap-2.5">
+        <!-- 门店切换器：只展示当前用户可见门店 -->
+        <StoreSwitcher />
+
         <!-- 搜索 -->
         <div
           v-if="shouldShowGlobalSearch"
@@ -131,9 +134,9 @@
 -->
         <!-- 设置按钮 -->
         <div v-if="shouldShowSettings">
-              <div class="flex-cc">
-                          <ArtIconButton icon="ri:settings-line" class="setting-btn" @click="openSetting" />
-                        </div>
+          <div class="flex-cc">
+            <ArtIconButton icon="ri:settings-line" class="setting-btn" @click="openSetting" />
+          </div>
         </div>
 
         <!-- 主题切换按钮 -->
@@ -160,17 +163,17 @@
   import { useI18n } from 'vue-i18n'
   import { useRouter } from 'vue-router'
   import { useFullscreen, useWindowSize } from '@vueuse/core'
-  import { LanguageEnum, MenuTypeEnum } from '@/enums/appEnum'
+  import { MenuTypeEnum } from '@/enums/appEnum'
   import { useSettingStore } from '@/store/modules/setting'
   import { useUserStore } from '@/store/modules/user'
   import { useMenuStore } from '@/store/modules/menu'
   import AppConfig from '@/config'
-  import { languageOptions } from '@/locales'
   import { mittBus } from '@/utils/sys'
   import { themeAnimation } from '@/utils/ui/animation'
   import { useCommon } from '@/hooks/core/useCommon'
   import { useHeaderBar } from '@/hooks/core/useHeaderBar'
   import ArtUserMenu from './widget/ArtUserMenu.vue'
+  import StoreSwitcher from './widget/StoreSwitcher.vue'
 
   defineOptions({ name: 'ArtHeaderBar' })
 
@@ -193,16 +196,12 @@
     shouldShowBreadcrumb,
     shouldShowGlobalSearch,
     shouldShowFullscreen,
-    shouldShowNotification,
-    shouldShowChat,
-    shouldShowLanguage,
     shouldShowSettings,
     shouldShowThemeToggle,
     fastEnterMinWidth: headerBarFastEnterMinWidth
   } = useHeaderBar()
 
-  const { menuOpen, systemThemeColor, showSettingGuide, menuType, isDark, tabStyle } =
-    storeToRefs(settingStore)
+  const { menuOpen, showSettingGuide, menuType, isDark, tabStyle } = storeToRefs(settingStore)
 
   const { language } = storeToRefs(userStore)
   const { menuList } = storeToRefs(menuStore)
@@ -269,17 +268,6 @@
   }
 
   /**
-   * 切换系统语言
-   * @param {LanguageEnum} lang - 目标语言类型
-   */
-  const changeLanguage = (lang: LanguageEnum): void => {
-    if (locale.value === lang) return
-    locale.value = lang
-    userStore.setLanguage(lang)
-    reload(50)
-  }
-
-  /**
    * 打开设置面板
    */
   const openSetting = (): void => {
@@ -314,20 +302,6 @@
     if (!isNoticeButton && !isNoticePanel) {
       showNotice.value = false
     }
-  }
-
-  /**
-   * 切换通知面板显示状态
-   */
-  const visibleNotice = (): void => {
-    showNotice.value = !showNotice.value
-  }
-
-  /**
-   * 打开聊天窗口
-   */
-  const openChat = (): void => {
-    mittBus.emit('openChat')
   }
 </script>
 

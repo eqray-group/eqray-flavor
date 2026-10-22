@@ -8,6 +8,7 @@ import (
 	"github.com/goravel/framework/foundation"
 
 	baseMiddleware "eqray-flavor/app/modules/base/middleware"
+	baseSupport "eqray-flavor/app/modules/base/support"
 	"eqray-flavor/app/modules/base/types"
 	infraMiddleware "eqray-flavor/app/modules/infra/middleware"
 	systemService "eqray-flavor/app/modules/system/service"
@@ -25,6 +26,19 @@ func Boot() contractsFoundation.Application {
 					return systemService.NewPermissionService().Allows(ctx, userID, code)
 				},
 			)
+
+			// 门店可见范围需要判断超管，角色数据归 system，启动时注入
+			baseSupport.RegisterSuperAdminChecker(
+				func(ctx context.Context, userID types.ID) (bool, error) {
+					return systemService.NewPermissionService().IsSuperAdmin(ctx, userID)
+				},
+			)
+
+			// 员工分配需要只读账号摘要，账号数据归 system，启动时注入
+			baseSupport.RegisterUserDirectory(systemService.NewUserDirectory())
+
+			// 新增骑手未指定账号时自动开通后台账号，写实现归 system，启动时注入
+			baseSupport.RegisterAccountProvisioner(systemService.NewAccountProvisioner())
 
 			// 操作日志中间件在 base，写库实现归 system，启动时注入
 			baseMiddleware.RegisterOperateLogRecorder(
