@@ -8,6 +8,7 @@ import (
 
 	"eqray-flavor/app/facades"
 	infraService "eqray-flavor/app/modules/infra/service"
+	orderService "eqray-flavor/app/modules/order/service"
 	payService "eqray-flavor/app/modules/pay/service"
 )
 
@@ -32,6 +33,28 @@ func Schedule() []schedule.Event {
 			EveryFiveMinutes().
 			Name("pay:close-expired-order").
 			OnOneServer(),
+		// 订单超时关单：每 5 分钟关闭超时的待支付订单，先关支付单再取消订单。
+		facades.Schedule().Call(closeExpiredOrders).
+			EveryFiveMinutes().
+			Name("order:close-expired-order").
+			OnOneServer(),
+	}
+}
+
+// closeExpiredOrders 关闭一批已超时的待支付订单，并把结果写入应用日志。
+// 无入参与返回值：单笔关单失败已记录在任务错误里，这里只汇总调度层结果。
+func closeExpiredOrders() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	closed, err := orderService.NewOrderService().CloseExpired(ctx, 100)
+	if err != nil {
+		facades.Log().Errorf("关闭超时订单失败（本次关闭 %d 单）：%v", closed, err)
+		return
+	}
+
+	if closed > 0 {
+		facades.Log().Infof("关闭超时订单完成，本次关闭 %d 单", closed)
 	}
 }
 

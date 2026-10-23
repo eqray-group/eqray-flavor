@@ -32,7 +32,9 @@ func (r *M20261023000026SeedOrderMenu) Up() error {
 		return err
 	}
 
-	orderPageID, err := r.ensureMenu(dirID, "订单管理", 2, 1, "index", "/order/index", "Order", "ri:file-list-3-line", "", now)
+	// 页面路由名不能与目录重名：目录 path 为 /order 会推出路由名 Order，
+	// 页面改用 OrderManage，避免前端路由表出现同名节点
+	orderPageID, err := r.ensureMenu(dirID, "订单管理", 2, 1, "index", "/order", "OrderManage", "ri:file-list-3-line", "", now)
 	if err != nil {
 		return err
 	}

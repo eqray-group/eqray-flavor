@@ -104,6 +104,19 @@ func (r *PayOrderRepository) FindByMerchantOrderID(ctx context.Context, appID ty
 	return r.find(ctx, query)
 }
 
+// FindLatestByMerchantOrderID 按商户订单号查询最近一张支付单，不限应用；未命中返回 (nil, nil)。
+// 入参：商户订单号；返回支付单与错误。
+// 说明：业务侧（订单）关单前需要确认该单是否已收款，而业务侧只知道自己这一侧的订单号，
+// 不掌握应用编号，因此这里放宽应用维度，按创建时间倒序取最近一张。
+func (r *PayOrderRepository) FindLatestByMerchantOrderID(ctx context.Context, merchantOrderID string) (*model.PayOrderModel, error) {
+	query := facades.DB().WithContext(ctx).Table(payOrderTable).
+		Where("merchant_order_id", merchantOrderID).
+		WhereNull("deleted_at").
+		OrderByDesc("id")
+
+	return r.find(ctx, query)
+}
+
 // Create 在事务内插入支付单。
 // 入参：事务与支付单模型；返回错误表示落库失败（no 唯一键冲突由服务层保证）。
 func (r *PayOrderRepository) Create(ctx context.Context, tx db.Tx, m *model.PayOrderModel) error {

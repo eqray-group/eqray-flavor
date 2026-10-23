@@ -79,11 +79,11 @@ type PricingStep struct {
 
 // PricingLineResult 是一行明细的计价结果。
 type PricingLineResult struct {
-	SpuID     types.ID
-	SkuID     types.ID
-	SpuName   string
-	SkuName   string
-	Addons    []PricingAddonInput
+	SpuID   types.ID
+	SkuID   types.ID
+	SpuName string
+	SkuName string
+	Addons  []PricingAddonInput
 	// UnitPrice 成交单价（分）：会员价或原价
 	UnitPrice int64
 	// Quantity 数量
@@ -156,7 +156,7 @@ func CalculatePricing(lines []PricingLineInput, rule PricingRuleInput) *PricingR
 		result.Lines = append(result.Lines, PricingLineResult{
 			SpuID: line.SpuID, SkuID: line.SkuID,
 			SpuName: line.SpuName, SkuName: line.SkuName,
-			Addons: line.Addons,
+			Addons:    line.Addons,
 			UnitPrice: unitPrice, Quantity: line.Quantity,
 			AddonAmount: addonAmount, LineDiscount: lineDiscount,
 			Subtotal: subtotal,

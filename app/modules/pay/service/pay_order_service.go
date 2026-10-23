@@ -421,6 +421,41 @@ func (s *PayOrderService) CloseExpired(ctx context.Context, limit uint64) (int, 
 	return closed, firstErr
 }
 
+// CloseByMerchantOrderID 按商户订单号关闭支付单：先查渠道确认未收款，再置为已关闭。
+// 入参：商户订单号；返回关闭后的支付单与错误。
+// 说明：业务侧（订单）关单前必须确认渠道是否真的没收到钱，否则会出现「已收款但订单被取消」。
+// 查单发现已收款时支付单会被置为已支付并原样返回，由调用方决定后续动作。
+func (s *PayOrderService) CloseByMerchantOrderID(ctx context.Context, merchantOrderID string) (*model.PayOrderModel, error) {
+	existing, err := s.orders.FindLatestByMerchantOrderID(ctx, merchantOrderID)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, nil
+	}
+
+	if existing.Status == payEnums.PayOrderStatusWaiting {
+		if err := s.Close(ctx, existing.ID); err != nil {
+			// Close 内部查单发现已收款时会返回「非待支付」错误，此时重新读单确认状态
+			if !isPayOrderStatusNotWaiting(err) {
+				return nil, err
+			}
+		}
+	}
+
+	return s.findByID(ctx, existing.ID)
+}
+
+// isPayOrderStatusNotWaiting 判断错误是否为「支付单不是待支付状态」。
+func isPayOrderStatusNotWaiting(err error) bool {
+	var business *baseErrs.BusinessError
+	if !errors.As(err, &business) {
+		return false
+	}
+
+	return business.Code() == payErrs.PayOrderStatusNotWaiting.Code
+}
+
 // markPaidFromQuery 依据查单结果把待支付的单补成已支付，并登记业务通知任务。
 // 入参：支付单与查单结果；返回错误表示落库失败，条件不满足时静默返回。
 func (s *PayOrderService) markPaidFromQuery(ctx context.Context, order *model.PayOrderModel, result *QueryResult) error {

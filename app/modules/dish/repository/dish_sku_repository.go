@@ -79,6 +79,26 @@ func (r *DishSkuRepository) FindByID(ctx context.Context, id types.ID) (*model.D
 	return &m, nil
 }
 
+// FindByIDs 批量查询规格；供订单试算与下单按 SKU 集合取价使用。
+func (r *DishSkuRepository) FindByIDs(ctx context.Context, ids []types.ID) ([]model.DishSkuModel, error) {
+	list := make([]model.DishSkuModel, 0)
+	if len(ids) == 0 {
+		return list, nil
+	}
+	values := make([]any, 0, len(ids))
+	for _, id := range ids {
+		values = append(values, id)
+	}
+	if err := facades.DB().WithContext(ctx).Table(dishSkuTable).
+		WhereIn("id", values).
+		WhereNull("deleted_at").
+		Get(&list); err != nil {
+		return nil, err
+	}
+
+	return list, nil
+}
+
 // FindBySpuIDs 批量查询菜品下的规格，按 SPU 与排序升序。
 func (r *DishSkuRepository) FindBySpuIDs(ctx context.Context, spuIDs []types.ID) ([]model.DishSkuModel, error) {
 	list := make([]model.DishSkuModel, 0)

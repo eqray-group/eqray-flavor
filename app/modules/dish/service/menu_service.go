@@ -393,35 +393,42 @@ func applyCategoryPrices(category *MenuCategory, isMember bool, now time.Time) {
 // resolveSkuPrice 按价格取值链算出规格价格（分）。
 // 门店价记录带区间时视为时段价，仅区间内生效且优先级最高；区间外整体回落品牌价。
 func resolveSkuPrice(sku *MenuSku, isMember bool, now time.Time) int64 {
-	if inPriceRange(sku, now) {
-		hasRange := sku.StartAt != nil || sku.EndAt != nil
-		if hasRange && sku.StorePrice > 0 {
-			return sku.StorePrice
+	return ResolveSkuPrice(sku.StandardPrice, sku.BrandMemberPrice, sku.StorePrice, sku.StoreMemberPrice, sku.StartAt, sku.EndAt, isMember, now)
+}
+
+// ResolveSkuPrice 是价格取值链的导出口径，菜单展示与订单试算共用，避免两处漂移。
+// 优先级：时段门店价 > 门店会员价 > 门店价 > 品牌会员价 > 品牌标准价；
+// 门店价记录带区间时视为时段价，仅区间内生效且优先级最高，区间外整体回落品牌价。
+func ResolveSkuPrice(standardPrice, brandMemberPrice, storePrice, storeMemberPrice int64, startAt, endAt *types.DateTime, isMember bool, now time.Time) int64 {
+	if inPriceRange(storePrice, storeMemberPrice, startAt, endAt, now) {
+		hasRange := startAt != nil || endAt != nil
+		if hasRange && storePrice > 0 {
+			return storePrice
 		}
-		if isMember && sku.StoreMemberPrice > 0 {
-			return sku.StoreMemberPrice
+		if isMember && storeMemberPrice > 0 {
+			return storeMemberPrice
 		}
-		if sku.StorePrice > 0 {
-			return sku.StorePrice
+		if storePrice > 0 {
+			return storePrice
 		}
 	}
 
-	if isMember && sku.BrandMemberPrice > 0 {
-		return sku.BrandMemberPrice
+	if isMember && brandMemberPrice > 0 {
+		return brandMemberPrice
 	}
 
-	return sku.StandardPrice
+	return standardPrice
 }
 
 // inPriceRange 判断门店价记录当前是否生效；未配置区间即长期有效。
-func inPriceRange(sku *MenuSku, now time.Time) bool {
-	if sku.StorePrice <= 0 && sku.StoreMemberPrice <= 0 {
+func inPriceRange(storePrice, storeMemberPrice int64, startAt, endAt *types.DateTime, now time.Time) bool {
+	if storePrice <= 0 && storeMemberPrice <= 0 {
 		return false
 	}
-	if sku.StartAt != nil && now.Before(sku.StartAt.Time()) {
+	if startAt != nil && now.Before(startAt.Time()) {
 		return false
 	}
-	if sku.EndAt != nil && now.After(sku.EndAt.Time()) {
+	if endAt != nil && now.After(endAt.Time()) {
 		return false
 	}
 

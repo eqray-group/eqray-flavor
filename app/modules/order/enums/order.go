@@ -90,14 +90,14 @@ const (
 
 // orderTransitions 是合法流转表，key 是原状态，value 是允许的新状态集合。
 var orderTransitions = map[OrderStatus][]OrderStatus{
-	OrderStatusPendingPay:     {OrderStatusPendingAccept, OrderStatusMaking, OrderStatusCancelled},
-	OrderStatusPendingAccept:  {OrderStatusMaking, OrderStatusRefunding},
-	OrderStatusMaking:         {OrderStatusWaitingPickup, OrderStatusCompleted, OrderStatusRefunding},
-	OrderStatusWaitingPickup:  {OrderStatusCompleted},
-	OrderStatusCompleted:      {OrderStatusRefunding},
-	OrderStatusCancelled:      {},
-	OrderStatusRefunding:      {OrderStatusRefunded, OrderStatusCompleted},
-	OrderStatusRefunded:       {},
+	OrderStatusPendingPay:    {OrderStatusPendingAccept, OrderStatusMaking, OrderStatusCancelled},
+	OrderStatusPendingAccept: {OrderStatusMaking, OrderStatusRefunding},
+	OrderStatusMaking:        {OrderStatusWaitingPickup, OrderStatusCompleted, OrderStatusRefunding},
+	OrderStatusWaitingPickup: {OrderStatusCompleted},
+	OrderStatusCompleted:     {OrderStatusRefunding},
+	OrderStatusCancelled:     {},
+	OrderStatusRefunding:     {OrderStatusRefunded, OrderStatusCompleted},
+	OrderStatusRefunded:      {},
 }
 
 // CanTransit 判断从当前状态流转到目标状态是否合法。

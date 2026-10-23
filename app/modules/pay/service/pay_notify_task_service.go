@@ -332,6 +332,34 @@ func signPayload(secret, appKey string, timestamp int64, nonce, payload string) 
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
+// notifySignHeaderName 是回调请求头里各字段的键名，业务方验签时使用同一套约定。
+const notifySignHeaderPrefix = "X-Pay-"
+
+// VerifyNotifySignature 验证内部业务回调请求的签名，供订单等本进程业务模块复用。
+// 入参：应用密钥、请求头集合（键名与 post 写入的一致）与原始请求体；返回验签是否通过。
+// 时间窗 ±10 分钟，防止截获的签名长期重放。
+func VerifyNotifySignature(secret string, headers map[string]string, payload []byte) bool {
+	appKey := headers[notifySignHeaderPrefix+"AppKey"]
+	timestampRaw := headers[notifySignHeaderPrefix+"Timestamp"]
+	nonce := headers[notifySignHeaderPrefix+"Nonce"]
+	sign := headers[notifySignHeaderPrefix+"Sign"]
+	if secret == "" || appKey == "" || timestampRaw == "" || nonce == "" || sign == "" {
+		return false
+	}
+
+	timestamp, err := strconv.ParseInt(timestampRaw, 10, 64)
+	if err != nil {
+		return false
+	}
+	if diff := time.Since(time.Unix(timestamp, 0)); diff > 10*time.Minute || diff < -10*time.Minute {
+		return false
+	}
+
+	expected := signPayload(secret, appKey, timestamp, nonce, string(payload))
+
+	return hmac.Equal([]byte(expected), []byte(sign))
+}
+
 // backoffDuration 按已通知次数取下一次重试间隔，超过预设档位后沿用最后一档。
 // 入参：已通知次数（从 1 开始）；返回等待时长。
 func backoffDuration(notifyTimes int8) time.Duration {

@@ -3,6 +3,7 @@ package param
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/goravel/framework/contracts/http"
 	contractsValidation "github.com/goravel/framework/contracts/validation"
@@ -104,4 +105,20 @@ func PathID(ctx http.Context) (types.ID, error) {
 		return 0, errs.WithMsg(errs.BadRequest, "路径参数 id 不合法")
 	}
 	return types.ID(v), nil
+}
+
+// QueryID 解析查询串里的 ID 参数，缺省或非法时返回 0（表示不限）。
+// 用于筛选类参数：与 PathID 不同，查询串里的 ID 不合法时按「不筛选」处理而不是报错。
+func QueryID(ctx http.Context, key string) types.ID {
+	raw := strings.TrimSpace(ctx.Request().Query(key))
+	if raw == "" {
+		return 0
+	}
+
+	v, err := strconv.ParseUint(raw, 10, 64)
+	if err != nil {
+		return 0
+	}
+
+	return types.ID(v)
 }

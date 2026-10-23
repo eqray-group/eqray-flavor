@@ -253,6 +253,26 @@ func (r *DishAddonRepository) CountItemsByGroupIDs(ctx context.Context, groupIDs
 	return counts, nil
 }
 
+// FindItemsByIDs 批量查询加料项；供订单试算校验加料选择使用。
+func (r *DishAddonRepository) FindItemsByIDs(ctx context.Context, ids []types.ID) ([]model.DishAddonItemModel, error) {
+	list := make([]model.DishAddonItemModel, 0)
+	if len(ids) == 0 {
+		return list, nil
+	}
+	values := make([]any, 0, len(ids))
+	for _, id := range ids {
+		values = append(values, id)
+	}
+	if err := facades.DB().WithContext(ctx).Table(dishAddonItemTable).
+		WhereIn("id", values).
+		WhereNull("deleted_at").
+		Get(&list); err != nil {
+		return nil, err
+	}
+
+	return list, nil
+}
+
 // FindItemByID 按主键查询未删除的加料项；未命中返回 (nil, nil)。
 func (r *DishAddonRepository) FindItemByID(ctx context.Context, id types.ID) (*model.DishAddonItemModel, error) {
 	var m model.DishAddonItemModel

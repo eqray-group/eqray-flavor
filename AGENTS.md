@@ -12,8 +12,8 @@ Goravel 文档本地副本在 `docs/framework/`（按需查，不要批量读）
   `web/system-manage-ui` 可用，`web/merchant-manage-ui`、`mobile/customer-uniapp`、`mobile/rider-uniapp` 是占位目录，对应模块开工前不要写代码。详见 `template/README.md`。
 - 认证：账号密码 + 图形验证码，访问 / 刷新双令牌；RBAC 权限点 `模块:资源:动作`，`SUPER_ADMIN` 直接放行；菜单由后端 `system_menu` 下发（`VITE_ACCESS_MODE=backend`）。
 - 初始账号 `admin` / `admin123`。
-- 模块：`system`（认证、用户、角色、菜单、字典、登录/操作日志）、`infra`（参数、文件、文件配置、API 日志、短信）、`member`（会员、等级、积分、签到、地址、社交登录）、`store`（门店组织树、门店员工与可见门店数据权限、桌台区域与桌台、骑手档案、打印设备与模板）、`dish`（分类、SPU/SKU、加料、门店可售与门店价、C 端菜单聚合）、`pay`（支付应用与渠道、支付单与退款、回调通知任务、会员钱包与充值）。
-- 定时任务只在 `bootstrap/schedule.go`：03:10 清理 API 访问日志、每分钟派发支付通知任务、每 5 分钟关闭超时支付单（`bootstrap/app.go` 的 `WithSchedule` 装载）。任务后台页面已删除，不要再引入。
+- 模块：`system`（认证、用户、角色、菜单、字典、登录/操作日志）、`infra`（参数、文件、文件配置、API 日志、短信）、`member`（会员、等级、积分、签到、地址、社交登录）、`store`（门店组织树、门店员工与可见门店数据权限、桌台区域与桌台、骑手档案、打印设备与模板）、`dish`（分类、SPU/SKU、加料、门店可售与门店价、C 端菜单聚合）、`order`（价格试算、下单幂等、订单状态机、与支付的回调对接）、`pay`（支付应用与渠道、支付单与退款、回调通知任务、会员钱包与充值）。
+- 定时任务只在 `bootstrap/schedule.go`：03:10 清理 API 访问日志、每分钟派发支付通知任务、每 5 分钟关闭超时支付单与超时订单（`bootstrap/app.go` 的 `WithSchedule` 装载）。任务后台页面已删除，不要再引入。
 
 ## 2. 命令
 
@@ -43,7 +43,7 @@ app/modules/<模块>/
 bootstrap/                # app.go 装配、migrations.go 注册表、schedule.go 调度
 database/migrations/      # 一个表一个 create_*，种子单独 seed_*
 template/
-  web/system-manage-ui/    # 管理后台：src/{api,views,types} 按 system / infra / member / store / dish / pay 分
+  web/system-manage-ui/    # 管理后台：src/{api,views,types} 按 system / infra / member / store / dish / order / pay 分
   web/merchant-manage-ui/  # 商户端（占位）
   mobile/customer-uniapp/  # 顾客端（占位）
   mobile/rider-uniapp/     # 骑手端（占位，走后台账号）
@@ -57,7 +57,9 @@ template/
 | `store` | `/api/v1/store` | 同上 | — | — |
 | `dish` | `/api/v1/dish` | 同上 | `/api/v1/client/dish` | 无（门店菜单按 storeId 查） |
 | `pay` | `/api/v1/pay` | 同上 | `/api/v1/client/pay`（钱包） | MemberAuth |
+| `order` | `/api/v1/order` | 同上 | `/api/v1/client/order` | MemberAuth |
 | `pay` 回调 | `/api/v1/pay/callbacks/*` | 无（渠道直连，自带验签） | — | — |
+| `order` 回调 | `/api/v1/order/callbacks/pay` | 无（pay 加签推送） | — | — |
 
 - 取当前人：管理端 `support.UserID`，C 端 `support.MemberID`。
 - C 端 `request` **禁止出现 memberId**，按会员过滤一律由 service 用令牌里的 ID 强制带条件。
@@ -227,7 +229,33 @@ facades.Route().Prefix("/api/v1/member").Group(func(r route.Router) {
   验签与解密都按该渠道的配置走。
 - 钱包扣减必须是 `WHERE balance + delta >= 0` 的条件更新 + 同事务流水，禁止先查余额再改。
 
-### 4.11 注释
+### 4.11 订单（order）
+
+订单模块是交易域主干，**计价口径与状态机取值已锁定**，改之前先看这一节。
+
+- 表：`cater_order` / `cater_order_item` / `cater_order_item_addon` / `cater_order_log` /
+  `cater_cart`（+ `cater_cart_item`）。表名用 `cater_` 前缀，`order` 是 SQL 保留字。
+- **订单状态用百位段位**：`100` 待支付 / `200` 待接单 / `300` 制作中 / `400` 待取餐 /
+  `500` 已完成 / `600` 已取消 / `700` 退款中 / `800` 已退款。
+  合法流转由 `enums.OrderStatus.CanTransit` 判定，对应测试设计 SM-00 ~ SM-07，不要在别处重复写流转表。
+- **状态与支付状态分离**：`status` 走订单状态机，`pay_status` 与 pay 模块对齐
+  （`0` 未支付 / `10` 已支付 / `20` 已退款）。两者不要合并成一个字段。
+- **计价是纯函数**：`service.CalculatePricing(lines, rule)` 不碰数据库，入参是装配好的行，
+  出参带逐步留痕。步骤顺序固定为「原价 → 单品级 → 活动 → 券 → 积分」，是 `07 §4` 的唯一口径；
+  券门槛按活动后金额比较，整单优惠按行小计占比分摊，最后一行消尾差，保证行应付之和 = 订单应付。
+  试算与下单共用 `resolveLines` 装配，**不许各写一套取价逻辑**。
+- **下单幂等靠 `(store_id, request_no)` 唯一索引**兜底，客户端生成请求号后重试复用；
+  命中幂等返回旧订单并置 `IdempotentHit`，不重复建单。
+- **支付对接**：订单号即支付单的 `merchant_order_id`；pay 按应用的 `order_notify_url`
+  推送签名通知到 `POST /api/v1/order/callbacks/pay`，订单侧验签 + 核对金额后推进状态。
+  金额不一致必须报错让 pay 持续重试，不能「先记成功再说」。
+- **超时关单顺序**：先关支付单（内部查渠道确认未收款），确认关闭后才取消订单；
+  渠道已收款的单本轮不取消，交给支付回调推进。**禁止先取消订单再关支付单**。
+- **门店数据权限**：管理端列表按当前用户可见门店过滤，详情与流转都要校验订单归属门店，
+  越权按「订单不属于当前门店」拒绝。C 端会员只能看自己的订单（`MemberDetail`）。
+- 菜品与加料名称、价格全部落快照，菜品后续改价不影响历史订单。
+
+### 4.12 注释
 
 每个函数/方法都要文档注释：**做什么 + 关键约束 + 入参 + 返回**，中文描述业务语义。
 
