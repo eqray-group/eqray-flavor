@@ -12,8 +12,8 @@ Goravel 文档本地副本在 `docs/framework/`（按需查，不要批量读）
   `web/system-manage-ui` 可用，`web/merchant-manage-ui`、`mobile/customer-uniapp`、`mobile/rider-uniapp` 是占位目录，对应模块开工前不要写代码。详见 `template/README.md`。
 - 认证：账号密码 + 图形验证码，访问 / 刷新双令牌；RBAC 权限点 `模块:资源:动作`，`SUPER_ADMIN` 直接放行；菜单由后端 `system_menu` 下发（`VITE_ACCESS_MODE=backend`）。
 - 初始账号 `admin` / `admin123`。
-- 模块：`system`（认证、用户、角色、菜单、字典、登录/操作日志）、`infra`（参数、文件、文件配置、API 日志、短信）、`member`（会员、等级、积分、签到、地址、社交登录）、`store`（门店组织树、门店员工与可见门店数据权限、桌台区域与桌台、骑手档案、打印设备与模板）。
-- 定时任务只在 `bootstrap/schedule.go`：每天 03:10 清理 API 访问日志（`bootstrap/app.go` 的 `WithSchedule` 装载）。任务后台页面已删除，不要再引入。
+- 模块：`system`（认证、用户、角色、菜单、字典、登录/操作日志）、`infra`（参数、文件、文件配置、API 日志、短信）、`member`（会员、等级、积分、签到、地址、社交登录）、`store`（门店组织树、门店员工与可见门店数据权限、桌台区域与桌台、骑手档案、打印设备与模板）、`dish`（分类、SPU/SKU、加料、门店可售与门店价、C 端菜单聚合）、`pay`（支付应用与渠道、支付单与退款、回调通知任务、会员钱包与充值）。
+- 定时任务只在 `bootstrap/schedule.go`：03:10 清理 API 访问日志、每分钟派发支付通知任务、每 5 分钟关闭超时支付单（`bootstrap/app.go` 的 `WithSchedule` 装载）。任务后台页面已删除，不要再引入。
 
 ## 2. 命令
 
@@ -43,7 +43,7 @@ app/modules/<模块>/
 bootstrap/                # app.go 装配、migrations.go 注册表、schedule.go 调度
 database/migrations/      # 一个表一个 create_*，种子单独 seed_*
 template/
-  web/system-manage-ui/    # 管理后台：src/{api,views,types} 按 system / infra / member / store 分
+  web/system-manage-ui/    # 管理后台：src/{api,views,types} 按 system / infra / member / store / dish / pay 分
   web/merchant-manage-ui/  # 商户端（占位）
   mobile/customer-uniapp/  # 顾客端（占位）
   mobile/rider-uniapp/     # 骑手端（占位，走后台账号）
@@ -55,6 +55,9 @@ template/
 | `infra` | `/api/v1/infra` | 同上 | `/api/v1/client/infra`（仅上传） | MemberAuth |
 | `member` | `/api/v1/member` | 同上 | `/api/v1/client/member` | MemberAuth |
 | `store` | `/api/v1/store` | 同上 | — | — |
+| `dish` | `/api/v1/dish` | 同上 | `/api/v1/client/dish` | 无（门店菜单按 storeId 查） |
+| `pay` | `/api/v1/pay` | 同上 | `/api/v1/client/pay`（钱包） | MemberAuth |
+| `pay` 回调 | `/api/v1/pay/callbacks/*` | 无（渠道直连，自带验签） | — | — |
 
 - 取当前人：管理端 `support.UserID`，C 端 `support.MemberID`。
 - C 端 `request` **禁止出现 memberId**，按会员过滤一律由 service 用令牌里的 ID 强制带条件。
@@ -200,7 +203,31 @@ facades.Route().Prefix("/api/v1/member").Group(func(r route.Router) {
 - 前端门店上下文在 `useStoreContextStore`（持久化 `currentStoreId` / `currentStoreName`），
   HTTP 拦截器注入请求头；退出登录与切换账号时清空；切换后刷新当前页。
 
-### 4.10 注释
+### 4.10 支付（pay）
+
+支付模块**结构对齐 yudao `yudao-module-pay`**，改它之前先看这一节的取值口径，不要「顺手优化」。
+
+- 表：`pay_app` / `pay_channel` / `pay_order` / `pay_order_extension` / `pay_refund` /
+  `pay_notify_task` / `pay_notify_log` / `pay_transfer` / `pay_wallet` / `pay_wallet_transaction` /
+  `pay_wallet_recharge_package` / `pay_wallet_recharge`，字段语义与 yudao 一致。
+- **状态值必须与 yudao 同值**：支付单 `0` 待支付 / `10` 支付成功 / `20` 支付关闭；
+  退款单 `0` 生成 / `1` 成功 / `2` 失败 / `99` 关闭；通知任务 `1` 等待 / `2` 成功 / `3` 失败 /
+  `4` 请求成功但结果失败 / `5` 请求失败。
+- **支付单没有「已退款」状态**：全额退款只累加 `pay_order.refund_price`，`status` 仍是 `10`；
+  判断是否退完用 `refund_price >= price`。别再往状态机里塞退款态。
+- 模块内「开启状态」沿用 yudao 的 `0` 开启 / `1` 关闭，与全站 `common_status` 相反，
+  应用 / 渠道 / 充值套餐三处统一用 `enums.PayEnableStatusEnum`。
+- 下单即调渠道，每次调起新增一条 `pay_order_extension`；渠道回调只改支付单与拓展单，
+  业务方靠 `pay_notify_task` 加签回调感知，不直接改业务订单。
+- 通知重试 8 档（15s / 15s / 30s / 3m / 30m×3 / 1h），算首次共 9 次；业务方响应 `success` 才算成功，
+  2xx 但非 success 记 `4`，网络或非 2xx 记 `5`，两者都继续重试。
+- 渠道配置存 `pay_channel.config`（JSON），密钥字段读出时脱敏、写回时掩码表示沿用原值；
+  `config/pay.go` 只保留 `pay.notify_base_url`，不要在环境变量里再配商户号。
+- 回调地址由**渠道主键**决定：`{notify_base_url}/api/v1/pay/callbacks/order|refund/{channelId}`，
+  验签与解密都按该渠道的配置走。
+- 钱包扣减必须是 `WHERE balance + delta >= 0` 的条件更新 + 同事务流水，禁止先查余额再改。
+
+### 4.11 注释
 
 每个函数/方法都要文档注释：**做什么 + 关键约束 + 入参 + 返回**，中文描述业务语义。
 

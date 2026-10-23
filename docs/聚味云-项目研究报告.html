@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>聚味云 · 项目研究报告</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --card: #ffffff; --ink: #1a1d23; --ink-2: #4a5160; --ink-3: #7c8494;
+    --line: #e4e7ec; --brand: #c2571a; --brand-soft: #fdf2e9;
+    --ok: #1f7a4d; --ok-soft: #eaf6ef; --warn: #9a6b00; --warn-soft: #fdf6e3;
+    --idle: #6b7280; --idle-soft: #f1f3f5; --risk: #b42318; --risk-soft: #fdecea;
+    --mono: ui-monospace, "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.7;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 1060px; margin: 0 auto; padding: 40px 28px 72px; }
+  header { margin-bottom: 30px; }
+  .eyebrow { font-size: 12px; letter-spacing: .14em; color: var(--brand); font-weight: 600; margin-bottom: 10px; }
+  h1 { font-size: 32px; line-height: 1.25; margin: 0 0 12px; letter-spacing: -.01em; }
+  .sub { color: var(--ink-2); font-size: 15px; margin: 0; max-width: 760px; }
+  .meta { display: flex; gap: 18px; flex-wrap: wrap; margin-top: 18px; font-size: 12px; color: var(--ink-3); font-family: var(--mono); }
+  .meta span::before { content: ""; display: inline-block; width: 4px; height: 4px; background: #c3c8d1; border-radius: 50%; margin-right: 8px; vertical-align: 3px; }
+  .verdict { background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--brand); border-radius: 8px; padding: 20px 24px; margin: 28px 0 32px; }
+  .verdict p { margin: 0; font-size: 15px; }
+  .verdict p + p { margin-top: 10px; color: var(--ink-2); font-size: 14px; }
+  .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 40px; }
+  .metric { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; }
+  .metric .n { font-size: 26px; font-weight: 650; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+  .metric .n small { font-size: 13px; font-weight: 500; color: var(--ink-3); margin-left: 3px; }
+  .metric .k { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+  section { margin-bottom: 42px; }
+  h2 { font-size: 19px; margin: 0 0 6px; letter-spacing: -.01em; display: flex; align-items: baseline; gap: 10px; }
+  h2 .idx { font-family: var(--mono); font-size: 12px; color: var(--brand); font-weight: 500; }
+  .lead { color: var(--ink-2); margin: 0 0 18px; font-size: 14px; }
+  h3 { font-size: 15px; margin: 24px 0 10px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 22px 24px; }
+  .card + .card { margin-top: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+  th { text-align: left; font-weight: 600; font-size: 12px; color: var(--ink-3); letter-spacing: .04em; padding: 0 12px 10px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 11px 12px 11px 0; border-bottom: 1px solid #f0f2f5; vertical-align: top; color: var(--ink-2); }
+  tr:last-child td { border-bottom: none; }
+  td:first-child { color: var(--ink); font-weight: 500; }
+  table.plain td:first-child { font-weight: 400; }
+  .num { font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  .pill { display: inline-block; font-size: 11.5px; padding: 2px 9px; border-radius: 20px; font-weight: 500; white-space: nowrap; line-height: 1.6; }
+  .p-ok { background: var(--ok-soft); color: var(--ok); }
+  .p-warn { background: var(--warn-soft); color: var(--warn); }
+  .p-idle { background: var(--idle-soft); color: var(--idle); }
+  .p-risk { background: var(--risk-soft); color: var(--risk); }
+  .layers { display: flex; flex-direction: column; gap: 8px; }
+  .layer { display: grid; grid-template-columns: 92px 1fr; gap: 16px; align-items: center; background: #fafbfc; border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px; }
+  .layer .tag { font-size: 11.5px; font-weight: 600; color: var(--ink-3); text-align: right; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; }
+  .chip { font-size: 12px; padding: 3px 10px; border-radius: 5px; background: #fff; border: 1px solid var(--line); font-family: var(--mono); color: var(--ink-2); }
+  .chip.new { border-color: #e8c9b4; background: var(--brand-soft); color: var(--brand); }
+  .chip.gone { border-style: dashed; color: var(--ink-3); }
+  .arrow { text-align: center; color: var(--ink-3); font-size: 12px; line-height: 1; }
+  .dev { border-left: 2px solid var(--line); padding-left: 18px; margin-top: 6px; }
+  .dev-item { position: relative; padding-bottom: 20px; }
+  .dev-item:last-child { padding-bottom: 0; }
+  .dev-item::before { content: ""; position: absolute; left: -24px; top: 7px; width: 9px; height: 9px; border-radius: 50%; background: #fff; border: 2px solid var(--brand); }
+  .dev-item h4 { margin: 0 0 4px; font-size: 14px; }
+  .dev-item p { margin: 0; font-size: 13px; color: var(--ink-2); }
+  code { font-family: var(--mono); font-size: 12px; background: #f4f5f7; padding: 1px 5px; border-radius: 3px; color: #7a3d12; }
+  .sev { font-size: 11px; font-weight: 600; margin-left: 6px; }
+  .sev.hi { color: var(--risk); } .sev.mid { color: var(--warn); } .sev.lo { color: var(--ink-3); }
+  .risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .risk { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; }
+  .risk h4 { margin: 0 0 6px; font-size: 13.5px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+  .risk p { margin: 0; font-size: 12.5px; color: var(--ink-2); }
+  .lv { font-size: 10.5px; font-weight: 600; padding: 1px 7px; border-radius: 3px; flex-shrink: 0; }
+  .lv-1 { background: var(--risk-soft); color: var(--risk); }
+  .lv-2 { background: var(--warn-soft); color: var(--warn); }
+  .lv-3 { background: var(--idle-soft); color: var(--idle); }
+  .steps { counter-reset: s; }
+  .step { display: grid; grid-template-columns: 30px 1fr; gap: 14px; padding: 14px 0; border-bottom: 1px solid #f0f2f5; }
+  .step:last-child { border-bottom: none; }
+  .step::before { counter-increment: s; content: counter(s); font-family: var(--mono); font-size: 11px; width: 24px; height: 24px; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: var(--brand-soft); color: var(--brand); font-weight: 600; margin-top: 2px; }
+  .step h4 { margin: 0 0 3px; font-size: 14px; }
+  .step p { margin: 0; font-size: 13px; color: var(--ink-2); }
+  .step .why { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+  .bar-row { display: grid; grid-template-columns: 128px 1fr 62px; gap: 12px; align-items: center; padding: 7px 0; }
+  .bar-row .lb { font-size: 13px; color: var(--ink-2); }
+  .bar { height: 8px; background: #eef0f3; border-radius: 4px; overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 4px; background: var(--brand); }
+  .bar i.done { background: #2f8f5b; } .bar i.part { background: #d9a12b; }
+  .bar-row .vv { font-family: var(--mono); font-size: 12px; color: var(--ink-3); text-align: right; }
+  footer { margin-top: 46px; padding-top: 18px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-3); display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  @media (max-width: 820px) {
+    .metrics { grid-template-columns: repeat(2, 1fr); }
+    .risk-grid { grid-template-columns: 1fr; }
+    .layer { grid-template-columns: 1fr; gap: 8px; }
+    .layer .tag { text-align: left; }
+    .bar-row { grid-template-columns: 100px 1fr 52px; }
+    h1 { font-size: 26px; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">项目研究 · 技术尽调</div>
+    <h1>聚味云：多门店全渠道点餐系统</h1>
+    <p class="sub">
+      单品牌连锁的堂食 / 外卖 / 自提一体化平台。后端单体多模块，复用 eqray 框架的账号、会员、文件、短信能力，
+      自建门店、菜品、订单、营销、支付五个业务域。
+    </p>
+    <div class="meta">
+      <span>代码库 eqray-flavor</span>
+      <span>Go 1.25 · Goravel 1.18 · MySQL 8 · Redis</span>
+      <span>Vue 3.5 · Vite 7 · Element Plus</span>
+      <span>评估日 2026-10-23</span>
+    </div>
+  </header>
+
+  <div class="verdict">
+    <p>
+      结论：<strong>地基扎实、设计成熟，但业务主干尚未贯通。</strong>
+      基础设施（认证 / 权限 / 会员 / 门店 / 菜品 / 支付）已落地 4.1 万行 Go 代码与 56 张表，分层纪律与编码规范执行得相当一致；
+      但订单、营销、库存、KDS、结算、打印任务六个域<strong>零代码</strong>，而订单正是全系统最复杂、耦合最深的部分。
+    </p>
+    <p>
+      更需要留意的是：<strong>进度文档已经落后于代码。</strong>支付模块在 10-22 被整体重写为支付中心（12 张表，对齐 yudao），
+      但两份进度文档仍在描述旧的「精简版」；<code>AGENTS.md</code> 至今没有收录 dish / pay 模块。
+      任何按文档接手的人都会误判项目规模 —— 这是当前投入产出比最高的待修项。
+    </p>
+  </div>
+
+  <div class="metrics">
+    <div class="metric"><div class="n">40,946<small>行</small></div><div class="k">Go 代码（不含测试）</div></div>
+    <div class="metric"><div class="n">56<small>张</small></div><div class="k">业务表 / 102 个迁移</div></div>
+    <div class="metric"><div class="n">165<small>个</small></div><div class="k">后端路由声明</div></div>
+    <div class="metric"><div class="n">49<small>页</small></div><div class="k">管理后台页面</div></div>
+  </div>
+
+  <section>
+    <h2><span class="idx">01</span>产品定位与形态</h2>
+    <p class="lead">一句话：账号、会员、文件、短信用现成的；门店、菜品、订单、营销、支付按同一套规范自己造。</p>
+    <div class="card">
+      <table>
+        <tr><th style="width:120px">维度</th><th>设计</th></tr>
+        <tr><td>业务模式</td><td>单品牌连锁：1 个总部（可设大区）→ N 家门店（直营 / 加盟）。门店是经营单元，总部是菜品与价格的唯一真相源</td></tr>
+        <tr><td>渠道</td><td>扫码堂食、外卖配送、到店自提，三渠道汇入统一订单中心</td></tr>
+        <tr><td>终端</td><td>管理后台（内含 POS / KDS 路由）、顾客端小程序、骑手端、商户端；当前仅管理后台落地</td></tr>
+        <tr><td>形态选择</td><td>拒绝微服务：一个二进制、一个端口、模块间包调用。单品牌门店量级下，运维成本与本地事务一致性优先于弹性扩容</td></tr>
+        <tr><td>核心矛盾</td><td>「会员 / 券 / 钱包刻意不带门店维度」= 跨店通用；「订单 / 桌台 / 库存必须带门店」= 严格隔离。这条线是全系统数据设计的骨架</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="idx">02</span>架构与依赖纪律</h2>
+    <p class="lead">依赖铁律只有两条，但执行得干净：只允许上层依赖下层；跨模块只调 Service，禁止读别人的表。</p>
+    <div class="layers">
+      <div class="layer">
+        <div class="tag">业务层</div>
+        <div class="chips">
+          <span class="chip new">store 门店</span>
+          <span class="chip new">dish 菜品</span>
+          <span class="chip new">pay 支付</span>
+          <span class="chip gone">order 订单</span>
+          <span class="chip gone">promotion 营销</span>
+        </div>
+      </div>
+      <div class="arrow">↓ 只调 Service</div>
+      <div class="layer">
+        <div class="tag">通用层</div>
+        <div class="chips">
+          <span class="chip">member 会员</span>
+          <span class="chip">system 账号权限</span>
+          <span class="chip">infra 配置 / 文件 / 短信 / 日志</span>
+        </div>
+      </div>
+      <div class="arrow">↓</div>
+      <div class="layer">
+        <div class="tag">基础层</div>
+        <div class="chips"><span class="chip">base 认证 / 响应 / 错误码 / 中间件</span></div>
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px">
+      <h3 style="margin-top:0">一次请求的链路</h3>
+      <table class="plain">
+        <tr><td style="width:28px" class="num">1</td><td>全局日志中间件记录访问信息，不阻塞响应</td></tr>
+        <tr><td class="num">2</td><td>TokenAuth 校验令牌：后台写登录者身份、C 端写会员身份，两套令牌互不通用</td></tr>
+        <tr><td class="num">3</td><td>后台再过权限点（<code>模块:资源:动作</code>，超管直接放行）；C 端只看会员身份，不参与 RBAC</td></tr>
+        <tr><td class="num">4</td><td>门店级请求先过 <code>X-Store-Id</code> 中间件：校验门店存在、是门店类型、在当前用户可见范围内，才写入上下文</td></tr>
+        <tr><td class="num">5</td><td>Controller 取参 → Service 业务 → Repository 查询；统一返回 <code>{code, msg, data}</code>，HTTP 恒 200</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="idx">03</span>模块完成度</h2>
+    <p class="lead">以代码与迁移为准逐模块核对，不看文档自述。</p>
+    <div class="card">
+      <table>
+        <tr><th style="width:132px">模块</th><th style="width:82px">状态</th><th style="width:64px">Go 文件</th><th>实际落地内容</th></tr>
+        <tr><td>base</td><td><span class="pill p-ok">完成</span></td><td class="num">23</td><td>认证、响应、错误码、参数、中间件、门店上下文注入</td></tr>
+        <tr><td>system</td><td><span class="pill p-ok">完成</span></td><td class="num">43</td><td>登录、用户、角色、菜单、字典、登录 / 操作日志、看板</td></tr>
+        <tr><td>infra</td><td><span class="pill p-ok">完成</span></td><td class="num">43</td><td>参数、文件与存储配置、API 访问 / 错误日志、短信渠道与模板、行政区划</td></tr>
+        <tr><td>member</td><td><span class="pill p-ok">完成</span></td><td class="num">59</td><td>会员、等级、标签、分组、积分、签到、地址、社交登录、手机号登录</td></tr>
+        <tr><td>store</td><td><span class="pill p-warn">基本完成</span></td><td class="num">52</td><td>门店组织树、员工与可见门店缓存、桌台区域 / 桌台 / 开台清台、骑手档案（条件更新抢单）、打印设备与模板（密钥 AES + 脱敏）。缺打印任务</td></tr>
+        <tr><td>dish</td><td><span class="pill p-warn">主体完成</span></td><td class="num">35</td><td>8 张表、分类树、SPU/SKU 整表提交、加料组、门店可售与门店价（浮动上限）、C 端菜单聚合 + 20 分钟快照缓存</td></tr>
+        <tr><td>pay</td><td><span class="pill p-warn">主体完成</span></td><td class="num">54</td><td>重写为支付中心：12 张表、应用 / 渠道 / 支付单 / 退款 / 通知任务 / 转账 / 钱包 / 充值档位；微信 APIv3 与支付宝网关、回调验签解密、余额支付、超时关单与通知派发</td></tr>
+        <tr><td>order</td><td><span class="pill p-idle">未开工</span></td><td class="num">0</td><td>无目录、无表、无接口。设计文档已定义 15 张表与完整状态机</td></tr>
+        <tr><td>promotion</td><td><span class="pill p-idle">未开工</span></td><td class="num">0</td><td>券 / 活动 / 名额均未建表</td></tr>
+        <tr><td>管理后台</td><td><span class="pill p-warn">部分完成</span></td><td class="num">334</td><td>49 个页面、38 个 API 封装；system / infra / member / store / dish / pay 均有页面，order 与 promotion 缺位</td></tr>
+        <tr><td>POS / KDS / 小程序 / 骑手端</td><td><span class="pill p-idle">未开工</span></td><td class="num">0</td><td>三个前端目录均为占位空壳</td></tr>
+      </table>
+    </div>
+
+    <h3>任务视角的进度缺口</h3>
+    <div class="card">
+      <div class="bar-row"><span class="lb">M0 地基</span><div class="bar"><i class="part" style="width:45%"></i></div><span class="vv">1 / 6</span></div>
+      <div class="bar-row"><span class="lb">M1 门店</span><div class="bar"><i class="done" style="width:83%"></i></div><span class="vv">5 / 6</span></div>
+      <div class="bar-row"><span class="lb">M2 菜品</span><div class="bar"><i class="part" style="width:40%"></i></div><span class="vv">2 / 5</span></div>
+      <div class="bar-row"><span class="lb">M3 支付</span><div class="bar"><i class="part" style="width:78%"></i></div><span class="vv">代码已超前</span></div>
+      <div class="bar-row"><span class="lb">M4 订单</span><div class="bar"><i style="width:2%;background:#dfe3e8"></i></div><span class="vv">0 / 9</span></div>
+      <div class="bar-row"><span class="lb">M5 出餐与库存</span><div class="bar"><i style="width:2%;background:#dfe3e8"></i></div><span class="vv">0 / 6</span></div>
+      <div class="bar-row"><span class="lb">M6 营销</span><div class="bar"><i style="width:2%;background:#dfe3e8"></i></div><span class="vv">0 / 5</span></div>
+      <div class="bar-row"><span class="lb">M7 结算与外接</span><div class="bar"><i style="width:2%;background:#dfe3e8"></i></div><span class="vv">0 / 7</span></div>
+      <div class="bar-row"><span class="lb">M8 前端</span><div class="bar"><i class="part" style="width:30%"></i></div><span class="vv">2 / 9</span></div>
+      <p style="font-size:12.5px;color:var(--ink-3);margin:14px 0 0">
+        按任务清单 59 项算，代码完成度约 27%；但按业务价值算远低于此 —— 已完成的都是「配角」，能收钱、能出餐的主链路还没打通。
+        M3 在清单里仍记 0/6，实际代码已远超该口径，这是文档滞后的直接证据。
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="idx">04</span>值得肯定的设计决策</h2>
+    <p class="lead">这批决策比多数同规模项目清醒，直接决定了后续开发的返工量。</p>
+    <div class="card">
+      <table>
+        <tr><th style="width:168px">决策</th><th>为什么重要</th></tr>
+        <tr><td>状态与钱分离</td><td><code>status</code> 只表达业务进度，<code>pay_status</code> 只表达收款。避免「已支付 / 已退款」混进订单状态机，导致非法流转与报表口径混乱</td></tr>
+        <tr><td>堂食先做后付</td><td>堂食下单不建支付单、直接进后厨，结账才收款。这决定了订单不能假设「一单对应一笔支付」，也因此必须支持分次结账 —— 设计在早期就把这条打通了</td></tr>
+        <tr><td>金额只信服务端</td><td>价格、优惠、积分全在服务端试算，客户端只做展示；支付金额与应付不一致直接拒绝。资金安全的第一道闸</td></tr>
+        <tr><td>优惠计算唯一口径</td><td>原价 → 单品级 → 商品级活动 → 订单级活动 → 券 → 积分 → 储值，七步写死在一个文档里。营销最怕「试算与结算两套算法」，这里从设计上堵住</td></tr>
+        <tr><td>门店上下文 + 可见范围缓存</td><td><code>X-Store-Id</code> 统一入口校验；可见门店集合缓存 30 分钟，员工变更主动失效；没有员工关联视为总部全量账号。越权面被收敛到一个中间件里</td></tr>
+        <tr><td>条件更新代替「先查再改」</td><td>骑手抢单、桌台开台清台、券状态流转都用 <code>WHERE 状态=旧值</code> 的原子更新，并发下不会超接、不会重复核销。这是订单期最需要复用的模式</td></tr>
+        <tr><td>打印模板带版本与快照</td><td>模板正文变更自动递增版本，历史打印任务保存渲染快照。换机补打的内容与首次一致，不会因为改了模板就对不上账</td></tr>
+        <tr><td>支付与业务解耦</td><td>支付回调不直接改业务单，而是写 <code>pay_notify_task</code>，由定时任务加签推送给业务方。业务侧可重试、可补偿，订单不必理解渠道细节</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="idx">05</span>文档与代码的偏差</h2>
+    <p class="lead">这是本次研究最需要汇报的部分。共发现 7 处，前 4 处会实际误导判断或引入 bug。</p>
+    <div class="card">
+      <div class="dev">
+
+        <div class="dev-item">
+          <h4>1. 支付模块已被整体重写，文档仍在描述旧版<span class="sev hi">高</span></h4>
+          <p>
+            <code>docs/design/22</code> 写的是「精简版：只保留 <code>pay_order</code> / <code>pay_refund</code> 两张表，全平台一个收款账户，参数读 <code>config/pay.go</code>」。
+            实际代码里已是完整支付中心：<code>pay_app</code>、<code>pay_channel</code>、<code>pay_order</code>、<code>pay_order_extension</code>、<code>pay_refund</code>、
+            <code>pay_notify_task</code>、<code>pay_notify_log</code>、<code>pay_transfer</code>、<code>pay_wallet</code> 及三张钱包表，共 12 张，渠道从数据库读而不再读环境变量。
+            迁移 <code>20261022000060_drop_pay_tables_before_yudao</code> 就是这次重写的分界点。
+          </p>
+        </div>
+
+        <div class="dev-item">
+          <h4>2. 两份进度文档互相矛盾<span class="sev hi">高</span></h4>
+          <p>
+            <code>design/22</code> 说 dish / pay 已完成大半；<code>docs/开发任务.md</code> §七 仍记「M3 支付 0 完成、6 个未开始」，合计 10 完成 / 43 未开始。
+            两份文档都自称权威（22 说自己是「进度单一事实源」，任务文档说自己是「任务拆解」），但没有同步机制，谁也没更新对方。
+          </p>
+        </div>
+
+        <div class="dev-item">
+          <h4>3. AGENTS.md 未收录新模块<span class="sev hi">高</span></h4>
+          <p>
+            根目录 <code>AGENTS.md</code> 294 行，模块表里只有 system / infra / member / store，全篇没有出现 dish、pay、order 字样。
+            这是给 AI 助手和新人看的入口文件 —— 按它接手，会认为菜品和支付不存在，甚至可能重复造一遍。
+          </p>
+        </div>
+
+        <div class="dev-item">
+          <h4>4. config/pay.go 已是半死配置<span class="sev mid">中</span></h4>
+          <p>
+            文件里 <code>wechat.*</code>、<code>alipay.*</code>、<code>expire_minutes</code> 现在无人读取，仅剩 <code>notify_base_url</code> 还在用（回调地址拼接）。
+            但注释仍写着「全平台共用一个收款账户」，与实际「多应用多渠道、配置存 <code>pay_channel.config</code>」完全相反。留着的风险是：有人照着它去配 <code>.env</code>，配完发现不生效。
+          </p>
+        </div>
+
+        <div class="dev-item">
+          <h4>5. 迁移记录比文件多 14 条<span class="sev mid">中</span></h4>
+          <p>
+            运行日志显示数据库 <code>migrations</code> 表已执行 116 条，而仓库迁移文件只有 102 个。
+            差额来自历史删改文件但未清理记录，属于 AGENTS.md 已警示过的坑。后果：新环境从零迁移与现网结构可能不一致，需要比对一次。
+          </p>
+        </div>
+
+        <div class="dev-item">
+          <h4>6. 数据字典表与代码枚举不同值<span class="sev mid">中</span></h4>
+          <p>
+            <code>design/12</code> 把 <code>pay_channel_code</code> 写成「公众号 / 小程序 / 支付宝 / 余额」，代码枚举实际是 <code>wx_pub</code> / <code>wx_lite</code> / <code>alipay_*</code> / <code>wallet</code>。
+            另外支付模块的开启状态沿用 yudao 口径「0 开启 / 1 关闭」，与全站 <code>common_status</code>「1 启用 / 0 禁用」相反 —— 这条只在代码注释里，没有进文档，是很容易踩的反向逻辑。
+          </p>
+        </div>
+
+        <div class="dev-item">
+          <h4>7. 数据模型文档缺 4 张支付表<span class="sev lo">低</span></h4>
+          <p>
+            <code>design/03 §8</code> 支付域只列了渠道 / 支付单 / 退款 / 通知 / 钱包 / 充值，缺 <code>pay_app</code>、<code>pay_order_extension</code>、<code>pay_notify_log</code>、<code>pay_transfer</code>。
+          </p>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="idx">06</span>风险清单</h2>
+    <p class="lead">按「会不会挡住上线」排序，而不是按工作量。</p>
+    <div class="risk-grid">
+      <div class="risk">
+        <h4>订单域 0 行代码，却承担最复杂逻辑 <span class="lv lv-1">阻塞</span></h4>
+        <p>试算、同桌合并、分次结账、加菜退菜、幂等下单全压在这一个模块。设计文档给了口径，但没有一行代码验证过这些规则能否落地。M4 是 9 个任务，实际工作量可能超过已完成的全部模块之和。</p>
+      </div>
+      <div class="risk">
+        <h4>支付无任何单元测试 <span class="lv lv-1">阻塞</span></h4>
+        <p>现有 8 个测试文件全在 store 与 dish，pay 的 <code>service</code> 目录 <code>no test files</code>。回调验签、AES-GCM 解密、金额一致性校验、退款超额拦截，这些「错了就赔钱」的分支没有任何自动化保护。</p>
+      </div>
+      <div class="risk">
+        <h4>dish 与 pay 全部未提交 <span class="lv lv-1">阻塞</span></h4>
+        <p><code>git status</code> 显示两个模块、22 个迁移、pay 配置全是 untracked，仓库只有一个 store 提交。这是近 2 万行代码裸奔在磁盘上，一次误操作就没了。</p>
+      </div>
+      <div class="risk">
+        <h4>真实商户号未联调 <span class="lv lv-2">高</span></h4>
+        <p>微信 / 支付宝只完成代码侧签名与回调处理，没有真实商户号跑过一笔。证书、平台证书序列号、回调地址可达性、验签失败的具体表现都还是未知。</p>
+      </div>
+      <div class="risk">
+        <h4>无并发验证的库存与名额 <span class="lv lv-2">高</span></h4>
+        <p>设计要求「缓存原子预扣 + 数据库条件扣减」，但目前既无库存表也无名额表。限量 10 件 50 并发只成功 10 单，这个用例还没有代码可测。</p>
+      </div>
+      <div class="risk">
+        <h4>前端只有管理后台 <span class="lv lv-2">高</span></h4>
+        <p>POS、KDS、顾客端小程序、骑手端四个终端全是空目录。系统「能配」但顾客「不能点」，这是从 demo 到可用之间最大的一道鸿沟。</p>
+      </div>
+      <div class="risk">
+        <h4>定时任务多实例安全 <span class="lv lv-3">中</span></h4>
+        <p>三个任务都加了 <code>OnOneServer()</code>，这点做得对。但订单期还要新增超时关单、券过期、库存校准等一批任务，需要统一按此模式落地，别漏。</p>
+      </div>
+      <div class="risk">
+        <h4>单库单表的天花板 <span class="lv lv-3">中</span></h4>
+        <p>设计明确「一期单库，订单到百万级再按门店分表」。以连锁餐饮的订单增速，这个阈值大约在 12~18 个月内到达，需要提前准备归档策略而非临时改表。</p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="idx">07</span>建议的推进顺序</h2>
+    <p class="lead">先止血，再攻坚。前两步各半天到一天，收益远大于继续写新功能。</p>
+    <div class="card">
+      <div class="steps">
+        <div class="step">
+          <div>
+            <h4>提交现有代码，清理文档漂移</h4>
+            <p>先把 dish / pay 提交入库；改 <code>design/22</code> 的支付描述、<code>开发任务.md</code> §七 的 M3 计数；<code>AGENTS.md</code> 补 dish / pay 两个模块段落；删掉 <code>config/pay.go</code> 里已死的渠道配置，只留 <code>notify_base_url</code>。</p>
+            <p class="why">理由：近 2 万行未提交代码是最高风险，而文档偏差会让每个接手者重新踩一遍同样的坑。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h4>给支付补最小测试集</h4>
+            <p>四个用例就够挡住大部分事故：重复回调只置一次已支付、回调金额与支付单不符必须拒绝、退款金额超过可退额必须拒绝、钱包扣减并发不出现负余额。</p>
+            <p class="why">理由：支付是唯一「错了直接损失钱」的模块，也是目前唯一零测试的核心模块。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h4>订单域按「建表 → 试算 → 下单幂等 → 状态机」四步走</h4>
+            <p>对应 T-ORDER-01 到 04。建议把试算做成纯函数（输入明细 + 会员 + 券，输出金额与步骤明细），先离线跑通设计文档 13 里的 AM-01~AM-08 用例，再接数据库。试算是最容易出错也最容易单测的部分，先把它焊死。</p>
+            <p class="why">理由：试算是订单的地基，且与支付、库存解耦，可以独立验收。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h4>再接支付回调，打通堂食与外卖两条闭环</h4>
+            <p>堂食走「下单即制作 → 结账收款」，外卖走「下单 → 支付 → 接单」。两条链路各跑通一单真实数据，比写十个接口更能暴露设计漏洞。</p>
+            <p class="why">理由：设计要求堂食不建支付单，这条差异只有在真实闭环里才会暴露边界问题。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h4>出餐单与 KDS 紧随订单，不要提前做营销</h4>
+            <p>KDS 依赖出餐单，出餐单依赖订单；打印任务又依赖出餐单。营销虽然诱人，但它是订单试算的下游，先做会因为没有订单数据而反复返工。</p>
+            <p class="why">理由：现有任务路线（M5 出餐 → M6 营销）顺序是对的，不要因为营销「看起来简单」而插队。</p>
+          </div>
+        </div>
+        <div class="step">
+          <div>
+            <h4>顾客端小程序与订单并行推进</h4>
+            <p>管理后台已经能配门店、配菜品、配渠道，但顾客无法下单，整套系统就没有验证场景。建议在订单接口稳定后立即启动小程序，用真实扫码流程反向压测订单设计。</p>
+            <p class="why">理由：这是唯一能让前 4 万行代码产生实际价值的路径。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2><span class="idx">08</span>一句话总结</h2>
+    <div class="card">
+      <table class="plain">
+        <tr><td style="width:120px">做得好的</td><td>分层纪律、状态机设计、金额口径、门店数据隔离、支付与业务解耦 —— 这五项在同行项目里属于上游水平，而且是真的落到代码里了</td></tr>
+        <tr><td>最大的问题</td><td>不是技术，而是<strong>信息同步</strong>：代码跑得比文档快了一个版本，导致「项目到底做到哪」这个问题有三份互相矛盾的答案</td></tr>
+        <tr><td>最大的未知</td><td>订单域。设计写得越细，落地时的偏差越需要验证；建议把试算与状态机当成两个独立可验收的里程碑，而不是一个大任务</td></tr>
+        <tr><td>成熟度判断</td><td>基础设施可投产，业务链路约完成三成。距离「一家门店能用它跑完一天营业」还有 M4~M7 四个阶段</td></tr>
+      </table>
+    </div>
+  </section>
+
+
+  <footer>
+    <span>聚味云项目研究报告 · 基于 2026-10-23 代码快照</span>
+    <span>数据来源：app/ 源码、database/migrations、docs/design、git 工作区状态</span>
+  </footer>
+
+</div>
+</body>
+</html>
