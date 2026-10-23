@@ -65,6 +65,8 @@ func Register() {
 		// 经营概览与报表只读，跟订单查询同权限
 		pos("order:order:list").Get("/pos/overview", posController.Overview)
 		pos("order:order:list").Get("/pos/reports", posController.Report)
+		// KDS 看板只读，出餐动作走 /orders/{id}/transit
+		pos("order:order:list").Get("/pos/kds", posController.Kds)
 		// 试算与下单共用「代客下单」权限；现金结账单独授权，避免收银员越权收款
 		pos("order:pos:create").Post("/pos/estimates", posController.Estimate)
 		pos("order:pos:create").Middleware(operate("订单管理", "POS 代客下单")).

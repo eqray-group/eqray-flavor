@@ -193,6 +193,22 @@ func (c *PosController) Merge(ctx http.Context) http.Response {
 	return result.Success(ctx, out)
 }
 
+// Kds 返回后厨看板数据：待接单 / 制作中 / 待取餐的订单与明细。
+// 入参：无（门店取请求头）；返回含明细的订单卡片列表。
+func (c *PosController) Kds(ctx http.Context) http.Response {
+	storeID := support.StoreID(ctx.Context())
+	if storeID == 0 {
+		return result.Fail(ctx, errs.New(orderErrs.OrderPosStoreRequired))
+	}
+
+	out, err := c.service.KdsBoard(ctx.Context(), storeID, types.ID(support.UserID(ctx.Context())))
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	return result.Success(ctx, out)
+}
+
 // Overview 返回当前门店今日的经营概览，供门店端首页展示。
 // 入参：无（门店取请求头）；返回营收、客单价、退款额与各状态单量。
 func (c *PosController) Overview(ctx http.Context) http.Response {

@@ -200,6 +200,29 @@ func (r *CaterOrderRepository) FindByIDs(ctx context.Context, ids []types.ID) (m
 	return result, nil
 }
 
+// ListActiveByStore 列出门店指定状态集合内的订单，供 KDS 看板一次取全。
+// 入参：门店、状态集合与条数上限；返回按创建顺序排列的订单（不含明细）。
+// 说明：看板要的是「当前在做的所有单」，不分页，靠 limit 兜住异常情况。
+func (r *CaterOrderRepository) ListActiveByStore(ctx context.Context, storeID types.ID, statuses []any, limit int) ([]model.CaterOrderModel, error) {
+	orders := make([]model.CaterOrderModel, 0)
+	if len(statuses) == 0 {
+		return orders, nil
+	}
+
+	err := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).
+		Where("store_id", storeID).
+		WhereIn("status", statuses).
+		WhereNull("deleted_at").
+		OrderBy("id").
+		Limit(uint64(limit)).
+		Get(&orders)
+	if err != nil {
+		return nil, err
+	}
+
+	return orders, nil
+}
+
 // FindByNo 按订单号查询订单。
 func (r *CaterOrderRepository) FindByNo(ctx context.Context, no string) (*model.CaterOrderModel, error) {
 	query := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).Where("no", no)

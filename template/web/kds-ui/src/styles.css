@@ -1,0 +1,51 @@
+/* 后厨是暗环境，整体用深色底 + 高对比字，远处也能看清 */
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  color: #e8eaed;
+  background: #14161a;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+/* 轻量提示：不引 UI 库，用固定定位的小条代替 */
+.kds-toast {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  z-index: 9999;
+  padding: 10px 18px;
+  font-size: 15px;
+  color: #fff;
+  background: #d03050;
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 45%);
+  transform: translateX(-50%);
+  transition: opacity 0.3s;
+}
+
+.kds-toast-success {
+  background: #18a058;
+}
+
+.kds-toast-hide {
+  opacity: 0;
+}

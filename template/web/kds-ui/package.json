@@ -1,0 +1,23 @@
+{
+  "name": "kds-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "后厨 KDS：制作队列、出餐与超时提醒",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "axios": "^1.12.2",
+    "vue": "^3.5.21",
+    "vue-router": "^4.5.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.4",
+    "typescript": "^5.9.2",
+    "vite": "^6.3.5",
+    "vue-tsc": "^2.2.12"
+  }
+}
