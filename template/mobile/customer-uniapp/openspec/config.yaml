@@ -1,0 +1,61 @@
+schema: spec-driven
+
+context: |
+  项目：Wot Starter，一个基于 uni-app、Vue 3 和 Wot UI 的跨平台起手项目。
+  技术栈：Vue 3、uni-app、TypeScript、Vite、Wot UI、UnoCSS、Pinia、Alova、pnpm。
+  主要目标端：H5 和微信小程序；设计不得默认依赖仅浏览器可用的 API。
+  代码边界：页面位于 src/pages，通用 UI 位于 src/components，状态位于 src/store，API 位于 src/api。
+  工程约定：优先复用现有组件和 .agents/skills；网络功能覆盖加载、成功、空数据、失败和恢复；不得将凭据写入仓库。
+  语言：proposal、design、tasks 和 spec 正文使用简体中文；OpenSpec 结构关键字保留英文。
+
+rules:
+  proposal:
+    - 必须明确目标、非目标、影响范围和验收标准。
+    - 涉及跨端时必须说明 H5 与微信小程序的行为差异。
+  specs:
+    - 每条 Requirement 至少包含一个可验证的 Scenario。
+    - Scenario 使用 WHEN/THEN 描述外部可观察行为，不写实现细节。
+  design:
+    - 必须说明代码影响、兼容性和验证方案。
+  tasks:
+    - 任务必须可独立勾选，并覆盖实现与验证。
+
+operations:
+  apply:
+    guidance:
+      - 实现前先读取本变更的 proposal、spec、design 和 tasks。
+      - 每完成一个任务就更新 tasks.md；发现范围变化时先更新变更文档。
+  archive:
+    guidance:
+      - 归档前确认任务全部完成且 openspec validate 通过。
+
+# Project context (optional)
+# This is shown to AI when creating artifacts.
+# Add your tech stack, conventions, style guides, domain knowledge, etc.
+# Example:
+#   context: |
+#     Tech stack: TypeScript, React, Node.js
+#     We use conventional commits
+#     Domain: e-commerce platform
+
+# Per-artifact rules (optional)
+# Add custom rules for specific artifacts.
+# Example:
+#   rules:
+#     proposal:
+#       - Keep proposals under 500 words
+#       - Always include a "Non-goals" section
+#     tasks:
+#       - Break tasks into chunks of max 2 hours
+
+# Per-operation guidance (optional)
+# Add advisory guidance for how apply and archive work should be conducted.
+# This is separate from artifact rules above.
+# Example:
+#   operations:
+#     apply:
+#       guidance:
+#         - Keep test summaries concise
+#     archive:
+#       guidance:
+#         - Summarize the archive outcome before finishing
