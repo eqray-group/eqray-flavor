@@ -23,6 +23,7 @@ func Register() {
 	riderController := controller.NewRiderController()
 	printerController := controller.NewPrinterController()
 	printTemplateController := controller.NewPrintTemplateController()
+	printTaskController := controller.NewPrintTaskController()
 
 	facades.Route().Prefix(Prefix).Group(func(r route.Router) {
 		auth := r.Middleware(&baseMiddleware.TokenAuth{})
@@ -129,5 +130,14 @@ func Register() {
 			Middleware(operate("门店管理", "编辑打印模板")).Put("/print-templates/{id}", printTemplateController.Update)
 		perm("store:print-template:delete").Middleware(&storeMiddleware.StoreContext{}).
 			Middleware(operate("门店管理", "删除打印模板")).Delete("/print-templates/{id}", printTemplateController.Destroy)
+
+		// ---------- 打印任务 ----------
+		// 任务由支付成功时自动生成，后台只做查询与重打；重打会重置为待打印，由设备取走。
+		perm("store:print-task:list").Middleware(&storeMiddleware.StoreContext{}).
+			Get("/print-tasks", printTaskController.Index)
+		perm("store:print-task:list").Middleware(&storeMiddleware.StoreContext{}).
+			Get("/print-tasks/{id}", printTaskController.Detail)
+		perm("store:print-task:reprint").Middleware(&storeMiddleware.StoreContext{}).
+			Middleware(operate("门店管理", "重打小票")).Post("/print-tasks/{id}/reprint", printTaskController.Reprint)
 	})
 }

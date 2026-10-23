@@ -128,6 +128,18 @@ func (s OrderStatus) IsPaid() bool {
 	}
 }
 
+// CanAdjust 判断当前状态是否允许改价。
+// 只有还未进入支付的早期状态可以改：待支付与待接单；已支付订单金额已被支付单钉住，不能改。
+func (s OrderStatus) CanAdjust() bool {
+	return s == OrderStatusPendingPay || s == OrderStatusPendingAccept
+}
+
+// CanDispatch 判断当前状态是否允许派单。
+// 外卖订单在待接单与制作中都可以指派骑手，出餐后不再允许改派。
+func (s OrderStatus) CanDispatch() bool {
+	return s == OrderStatusPendingAccept || s == OrderStatusMaking
+}
+
 // String 返回订单状态中文描述。
 func (s OrderStatus) String() string {
 	switch s {

@@ -3,10 +3,12 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"eqray-flavor/app/facades"
 	"eqray-flavor/app/modules/base/types"
+	orderEnums "eqray-flavor/app/modules/order/enums"
 )
 
 // 控制台是聚合视图，允许跨模块只读查询；写操作仍归各自模块。
@@ -19,6 +21,9 @@ const (
 	dashboardLoginLogTable  = "auth_login_log"
 	dashboardAccessLogTable = "infra_api_access_log"
 	dashboardErrorLogTable  = "infra_api_error_log"
+	// 经营看板只读交易域订单表，与上面的跨模块只读口径一致
+	dashboardOrderTable     = "cater_order"
+	dashboardOrderItemTable = "cater_order_item"
 )
 
 // TrendRow 是趋势查询的原始行。
@@ -143,6 +148,106 @@ func (r *DashboardRepository) RecentLogins(ctx context.Context, limit int) ([]Re
 		Select("username, user_ip, result, created_at").
 		Where("type", 1).
 		OrderByDesc("id").
+		Limit(uint64(limit)).
+		Get(&rows)
+
+	return rows, err
+}
+
+// BusinessSummaryRow 是订单经营汇总的聚合行。
+type BusinessSummaryRow struct {
+	// OrderCount 区间内下单量，含未支付
+	OrderCount int64 `db:"order_count"`
+	// PaidCount 区间内已支付订单数
+	PaidCount int64 `db:"paid_count"`
+	// SaleAmount 区间内营业额（分），只统计已支付订单
+	SaleAmount int64 `db:"sale_amount"`
+	// RefundAmount 区间内退款额（分）
+	RefundAmount int64 `db:"refund_amount"`
+}
+
+// BusinessTrendRow 是按日经营趋势行。
+type BusinessTrendRow struct {
+	// Day 日期，格式 2006-01-02
+	Day string `db:"day"`
+	// Total 当日下单量，含未支付
+	Total int64 `db:"total"`
+	// Amount 当日营业额（分），只统计已支付订单
+	Amount int64 `db:"amount"`
+}
+
+// TopProductRow 是热销菜品聚合行。
+type TopProductRow struct {
+	// Name 菜品名称快照
+	Name string `db:"name"`
+	// Quantity 销量
+	Quantity int64 `db:"quantity"`
+	// Amount 销售额（分）
+	Amount int64 `db:"amount"`
+}
+
+// BusinessSummary 统计时间区间内的下单量、已支付单量、营业额与退款额。
+// 入参：区间起点（含）与终点（不含）；返回聚合结果，空区间时各项为 0。
+// 说明：营业额只认已支付订单（pay_status = 10），与财务对账口径一致。
+func (r *DashboardRepository) BusinessSummary(ctx context.Context, start, end time.Time) (*BusinessSummaryRow, error) {
+	paid := int8(orderEnums.PayStatusPaid)
+
+	// Select 只接受列名表达式，带参数的占位符无法下传，这里把状态常量拼进语句
+	var row BusinessSummaryRow
+	err := facades.DB().WithContext(ctx).Table(dashboardOrderTable).
+		Select(fmt.Sprintf(
+			"COUNT(*) AS order_count, "+
+				"COALESCE(SUM(CASE WHEN pay_status = %d THEN 1 ELSE 0 END), 0) AS paid_count, "+
+				"COALESCE(SUM(CASE WHEN pay_status = %d THEN pay_amount ELSE 0 END), 0) AS sale_amount, "+
+				"COALESCE(SUM(refund_amount), 0) AS refund_amount",
+			paid, paid,
+		)).
+		WhereNull("deleted_at").
+		Where("created_at >= ?", start).
+		Where("created_at < ?", end).
+		First(&row)
+	if err != nil {
+		return nil, err
+	}
+
+	return &row, nil
+}
+
+// BusinessTrend 按天统计下单量与营业额，供经营趋势图使用。
+func (r *DashboardRepository) BusinessTrend(ctx context.Context, since time.Time) ([]BusinessTrendRow, error) {
+	paid := int8(orderEnums.PayStatusPaid)
+
+	rows := make([]BusinessTrendRow, 0)
+	err := facades.DB().WithContext(ctx).Table(dashboardOrderTable).
+		Select(fmt.Sprintf(
+			"DATE_FORMAT(created_at, '%%Y-%%m-%%d') AS day, COUNT(*) AS total, "+
+				"COALESCE(SUM(CASE WHEN pay_status = %d THEN pay_amount ELSE 0 END), 0) AS amount",
+			paid,
+		)).
+		WhereNull("deleted_at").
+		Where("created_at >= ?", since).
+		GroupBy("day").
+		OrderBy("day").
+		Get(&rows)
+
+	return rows, err
+}
+
+// TopProducts 统计已支付订单里的热销菜品，按销量倒序。
+// 入参：统计起点、条数；返回菜品名称、销量与销售额。
+func (r *DashboardRepository) TopProducts(ctx context.Context, since time.Time, limit int) ([]TopProductRow, error) {
+	paid := int8(orderEnums.PayStatusPaid)
+
+	rows := make([]TopProductRow, 0)
+	err := facades.DB().WithContext(ctx).Table(dashboardOrderItemTable+" AS i").
+		Select("i.spu_name AS name, COALESCE(SUM(i.quantity), 0) AS quantity, COALESCE(SUM(i.subtotal), 0) AS amount").
+		Join("cater_order AS o ON o.id = i.order_id").
+		WhereNull("i.deleted_at").
+		WhereNull("o.deleted_at").
+		Where("o.pay_status", paid).
+		Where("o.created_at >= ?", since).
+		GroupBy("i.spu_name").
+		OrderByDesc("quantity").
 		Limit(uint64(limit)).
 		Get(&rows)
 

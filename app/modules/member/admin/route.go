@@ -57,10 +57,21 @@ func Register() {
 		perm("member:user:level").Middleware(operate("会员管理", "调整等级")).
 			Put("/users/{id}/level", memberController.AdjustLevel)
 
-		// 签到记录、收货地址与第三方绑定：后台只读
+		// 签到记录与第三方绑定：后台只读
 		perm("member:user:list").Get("/users/{id}/sign-records", memberController.SignRecords)
 		perm("member:user:list").Get("/users/{id}/addresses", memberController.Addresses)
 		perm("member:user:list").Get("/users/{id}/social-bindings", memberController.SocialBindings)
+
+		// 收货地址：后台可代客维护，便于电话改址与代下单场景
+		addressWrite := perm("member:user:address")
+		addressWrite.Middleware(operate("会员管理", "新增收货地址")).
+			Post("/users/{id}/addresses", memberController.AddressStore)
+		addressWrite.Middleware(operate("会员管理", "编辑收货地址")).
+			Put("/users/{id}/addresses/{addressId}", memberController.AddressUpdate)
+		addressWrite.Middleware(operate("会员管理", "设置默认地址")).
+			Put("/users/{id}/addresses/{addressId}/default", memberController.AddressSetDefault)
+		addressWrite.Middleware(operate("会员管理", "删除收货地址")).
+			Delete("/users/{id}/addresses/{addressId}", memberController.AddressDestroy)
 
 		// ---------- 等级 ----------
 		// 下拉供会员表单使用，因此只要求会员列表权限

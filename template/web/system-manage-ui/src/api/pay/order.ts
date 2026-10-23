@@ -44,3 +44,11 @@ export function fetchClosePayOrder(id: string) {
     url: `/api/v1/pay/orders/${id}/close`
   })
 }
+
+// 导出支付单 CSV：返回二进制流，由调用方触发下载
+export function fetchExportPayOrders(params: Api.Pay.OrderSearchParams) {
+  return request.download({
+    url: '/api/v1/pay/orders/export',
+    params
+  })
+}

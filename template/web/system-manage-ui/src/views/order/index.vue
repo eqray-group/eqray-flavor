@@ -10,6 +10,12 @@
     />
 
     <ElCard class="art-table-card">
+      <div class="mb-3 flex items-center justify-end gap-2">
+        <ElButton v-if="hasAuth('order:order:list')" :loading="exporting" @click="exportOrders">
+          导出 CSV
+        </ElButton>
+      </div>
+
       <ArtTableHeader v-model:columns="columnChecks" :loading="loading" @refresh="refreshData" />
 
       <ArtTable
@@ -22,6 +28,21 @@
       />
 
       <OrderDetailDialog v-model:visible="detailVisible" :order-id="currentOrderId" />
+      <OrderRemarkDialog
+        v-model:visible="remarkVisible"
+        :order="currentRow"
+        @success="refreshData"
+      />
+      <OrderAdjustDialog
+        v-model:visible="adjustVisible"
+        :order="currentRow"
+        @success="refreshData"
+      />
+      <OrderDispatchDialog
+        v-model:visible="dispatchVisible"
+        :order="currentRow"
+        @success="refreshData"
+      />
     </ElCard>
   </div>
 </template>
@@ -30,9 +51,20 @@
   import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
   import { useTable } from '@/hooks/core/useTable'
   import { useAuth } from '@/hooks/core/useAuth'
-  import { fetchCancelOrder, fetchGetOrderList, fetchTransitOrder } from '@/api/order/order'
+  import {
+    fetchCancelOrder,
+    fetchCancelOrderRider,
+    fetchExportOrders,
+    fetchGetOrderList,
+    fetchGetOrderTicket,
+    fetchTransitOrder
+  } from '@/api/order/order'
   import { ElMessage, ElMessageBox, ElTag } from 'element-plus'
+  import { exportFilename, saveBlob } from '@/utils/download'
+  import OrderAdjustDialog from './modules/order-adjust-dialog.vue'
   import OrderDetailDialog from './modules/order-detail-dialog.vue'
+  import OrderDispatchDialog from './modules/order-dispatch-dialog.vue'
+  import OrderRemarkDialog from './modules/order-remark-dialog.vue'
 
   defineOptions({ name: 'OrderManage' })
 
@@ -136,6 +168,16 @@
   const detailVisible = ref(false)
   const currentOrderId = ref('')
 
+  // 经营操作弹窗共用同一个当前行
+  const remarkVisible = ref(false)
+  const adjustVisible = ref(false)
+  const dispatchVisible = ref(false)
+  const exporting = ref(false)
+  const currentRow = ref<OrderItem | null>(null)
+
+  // 是否已派单：骑手 ID 为 0 表示未派单
+  const isDispatched = (row: OrderItem): boolean => !!row.riderId && String(row.riderId) !== '0'
+
   // 分转元展示，保留两位小数
   const formatYuan = (fen: number): string => ((fen || 0) / 100).toFixed(2)
 
@@ -226,7 +268,7 @@
         {
           prop: 'operation',
           label: '操作',
-          width: 260,
+          width: 420,
           fixed: 'right',
           formatter: (row: OrderItem) =>
             h('div', { class: 'flex items-center' }, [
@@ -274,6 +316,56 @@
                       onClick: () => cancelOrder(row)
                     })
                   ]
+                : []),
+              // 备注：未取消、未退款的订单都可改
+              ...(![600, 800].includes(row.status) && hasAuth('order:order:remark')
+                ? [
+                    h(ArtButtonTable, {
+                      type: 'edit',
+                      text: '备注',
+                      onClick: () => openRemark(row)
+                    })
+                  ]
+                : []),
+              // 改价：仅未支付且处于待支付 / 待接单
+              ...(row.payStatus === 0 &&
+              [100, 200].includes(row.status) &&
+              hasAuth('order:order:adjust')
+                ? [
+                    h(ArtButtonTable, {
+                      type: 'action',
+                      text: '改价',
+                      onClick: () => openAdjust(row)
+                    })
+                  ]
+                : []),
+              // 派单 / 取消派单：仅外卖订单，待接单与制作中可操作
+              ...(row.type === 2 &&
+              [200, 300].includes(row.status) &&
+              hasAuth('order:order:dispatch')
+                ? [
+                    isDispatched(row)
+                      ? h(ArtButtonTable, {
+                          type: 'delete',
+                          text: '取消派单',
+                          onClick: () => cancelDispatch(row)
+                        })
+                      : h(ArtButtonTable, {
+                          type: 'action',
+                          text: '派单',
+                          onClick: () => openDispatch(row)
+                        })
+                  ]
+                : []),
+              // 小票：只读动作，跟订单查询同权限
+              ...(hasAuth('order:order:list')
+                ? [
+                    h(ArtButtonTable, {
+                      type: 'view',
+                      text: '小票',
+                      onClick: () => printTicket(row)
+                    })
+                  ]
                 : [])
             ])
         }
@@ -313,6 +405,142 @@
       await fetchTransitOrder(row.id, { to })
       ElMessage.success('已流转')
       refreshData()
+    } catch {
+      // 错误提示已由请求层统一弹出
+    }
+  }
+
+  // 打开备注弹窗
+  const openRemark = (row: OrderItem): void => {
+    currentRow.value = row
+    remarkVisible.value = true
+  }
+
+  // 打开改价弹窗
+  const openAdjust = (row: OrderItem): void => {
+    currentRow.value = row
+    adjustVisible.value = true
+  }
+
+  // 打开派单弹窗
+  const openDispatch = (row: OrderItem): void => {
+    currentRow.value = row
+    dispatchVisible.value = true
+  }
+
+  // 取消派单：清空骑手并归还接单额度
+  const cancelDispatch = async (row: OrderItem): Promise<void> => {
+    try {
+      await ElMessageBox.confirm(`确定要取消订单「${row.no}」的派单吗？`, '取消派单', {
+        confirmButtonText: '确定',
+        cancelButtonText: '返回',
+        type: 'warning'
+      })
+    } catch {
+      return
+    }
+
+    try {
+      await fetchCancelOrderRider(row.id)
+      ElMessage.success('已取消派单')
+      refreshData()
+    } catch {
+      // 错误提示已由请求层统一弹出
+    }
+  }
+
+  // 导出当前筛选条件下的订单，最多由后端截断到一万条
+  const exportOrders = async (): Promise<void> => {
+    exporting.value = true
+    try {
+      const blob = await fetchExportOrders({ ...searchParams })
+      saveBlob(blob, exportFilename('orders'))
+      ElMessage.success('导出成功')
+    } catch {
+      // 错误提示已由请求层统一弹出
+    } finally {
+      exporting.value = false
+    }
+  }
+
+  // 转义小票里的文本，避免备注里的尖括号破坏结构
+  const escapeHtml = (value: string): string =>
+    value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+  // 生成小票 HTML：宽 80mm，前端直接调浏览器打印
+  const buildTicketHtml = (ticket: Api.Order.OrderTicket): string => {
+    const lines = ticket.items
+      .map((item) => {
+        const addons = item.addons.length
+          ? `<div class="addon">+ ${item.addons.map((a) => `${escapeHtml(a.name)}×${a.quantity}`).join('，')}</div>`
+          : ''
+        const remark = item.remark
+          ? `<div class="addon">备注：${escapeHtml(item.remark)}</div>`
+          : ''
+        return `<div class="item">
+          <div class="row"><span>${escapeHtml(item.name)}${item.skuName ? `（${escapeHtml(item.skuName)}）` : ''}</span><span>×${item.quantity}</span></div>
+          ${addons}${remark}
+        </div>`
+      })
+      .join('')
+
+    const receiver = ticket.receiverAddress
+      ? `<div>收货：${escapeHtml(ticket.receiverName)} ${escapeHtml(ticket.receiverPhone)}</div>
+         <div>地址：${escapeHtml(ticket.receiverAddress)}</div>`
+      : ''
+
+    return `<!DOCTYPE html><html><head><meta charset="utf-8" />
+      <title>${escapeHtml(ticket.orderNo)}</title>
+      <style>
+        * { box-sizing: border-box; }
+        body { width: 80mm; margin: 0 auto; padding: 6mm 4mm; font: 12px/1.5 "Microsoft YaHei", sans-serif; color: #000; }
+        h1 { margin: 0 0 4px; font-size: 16px; text-align: center; }
+        .center { text-align: center; }
+        .no { font-size: 14px; font-weight: 700; }
+        .row { display: flex; justify-content: space-between; gap: 8px; }
+        .item { margin: 4px 0; }
+        .addon { padding-left: 8px; font-size: 11px; }
+        .divider { border-top: 1px dashed #000; margin: 6px 0; }
+        .total { font-size: 14px; font-weight: 700; }
+        .tip { margin-top: 8px; text-align: center; font-size: 11px; }
+      </style></head><body>
+      <h1>${escapeHtml(ticket.storeShortName || ticket.storeName || '消费小票')}</h1>
+      <div class="center no">${escapeHtml(ticket.orderNo)}</div>
+      <div class="center">${escapeHtml(ticket.typeText)} · ${escapeHtml(ticket.channelText)}${ticket.tableName ? ` · ${escapeHtml(ticket.tableName)}` : ''}</div>
+      ${ticket.pickupCode ? `<div class="center">取餐码：${escapeHtml(ticket.pickupCode)}</div>` : ''}
+      <div class="divider"></div>
+      ${receiver}
+      <div class="divider"></div>
+      ${lines}
+      <div class="divider"></div>
+      <div class="row"><span>商品金额</span><span>¥${((ticket.itemAmount || 0) / 100).toFixed(2)}</span></div>
+      <div class="row"><span>加料费</span><span>¥${((ticket.addonAmount || 0) / 100).toFixed(2)}</span></div>
+      <div class="row"><span>优惠合计</span><span>-¥${((ticket.discountAmount || 0) / 100).toFixed(2)}</span></div>
+      ${ticket.adjustAmount ? `<div class="row"><span>改价差额</span><span>${ticket.adjustAmount > 0 ? '+' : '-'}¥${(Math.abs(ticket.adjustAmount) / 100).toFixed(2)}</span></div>` : ''}
+      <div class="row total"><span>应付</span><span>¥${((ticket.payAmount || 0) / 100).toFixed(2)}</span></div>
+      <div class="row"><span>支付状态</span><span>${escapeHtml(ticket.payStatusText)}</span></div>
+      <div class="divider"></div>
+      <div>下单时间：${escapeHtml(ticket.createdAt)}</div>
+      ${ticket.payTime ? `<div>支付时间：${escapeHtml(ticket.payTime)}</div>` : ''}
+      ${ticket.remark ? `<div>顾客备注：${escapeHtml(ticket.remark)}</div>` : ''}
+      ${ticket.merchantRemark ? `<div>商家备注：${escapeHtml(ticket.merchantRemark)}</div>` : ''}
+      <div class="tip">谢谢惠顾，欢迎再次光临</div>
+      </body></html>`
+  }
+
+  // 打印小票：拉取数据后在新窗口渲染并唤起打印
+  const printTicket = async (row: OrderItem): Promise<void> => {
+    try {
+      const ticket = await fetchGetOrderTicket(row.id)
+      const win = window.open('', '_blank', 'width=460,height=680')
+      if (!win) {
+        ElMessage.warning('浏览器拦截了打印窗口，请允许后重试')
+        return
+      }
+      win.document.write(buildTicketHtml(ticket))
+      win.document.close()
+      win.focus()
+      win.print()
     } catch {
       // 错误提示已由请求层统一弹出
     }

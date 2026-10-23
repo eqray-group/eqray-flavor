@@ -34,6 +34,8 @@ type PayRefundFilter struct {
 	ChannelCode string
 	// Status 退款状态
 	Status *int8
+	// AuditStatus 审核状态，nil 表示不限
+	AuditStatus *int8
 	// CreatedFrom 创建时间起（含）
 	CreatedFrom *types.DateTime
 	// CreatedTo 创建时间止（含）
@@ -66,6 +68,9 @@ func (r *PayRefundRepository) Paginate(ctx context.Context, filter PayRefundFilt
 	}
 	if filter.Status != nil {
 		query = query.Where("status", *filter.Status)
+	}
+	if filter.AuditStatus != nil {
+		query = query.Where("audit_status", *filter.AuditStatus)
 	}
 	if filter.CreatedFrom != nil {
 		query = query.Where("created_at >= ?", *filter.CreatedFrom)
@@ -145,6 +150,10 @@ func (r *PayRefundRepository) Create(ctx context.Context, tx db.Tx, m *model.Pay
 		"channel_error_code":  m.ChannelErrorCode,
 		"channel_error_msg":   m.ChannelErrorMsg,
 		"channel_notify_data": m.ChannelNotifyData,
+		"audit_status":        int8(m.AuditStatus),
+		"audit_time":          m.AuditTime,
+		"audit_by":            m.AuditBy,
+		"audit_remark":        m.AuditRemark,
 		"creator":             m.Creator,
 		"created_at":          m.CreatedAt,
 		"updater":             m.Updater,
@@ -172,6 +181,32 @@ func (r *PayRefundRepository) UpdateResult(ctx context.Context, tx db.Tx, m *mod
 			"channel_notify_data": m.ChannelNotifyData,
 			"updater":             m.Updater,
 			"updated_at":          m.UpdatedAt,
+		})
+	if err != nil {
+		return 0, err
+	}
+
+	return res.RowsAffected, nil
+}
+
+// UpdateAudit 回写审核结果，只命中仍待审核的单，避免重复审批。
+// 入参：事务与退款单模型（审核状态 / 审核人 / 审核时间 / 审核意见 / 退款状态）；返回影响行数。
+// 说明：驳回时同时把退款状态置为关闭，免得多出一条永远停在「生成」的退款单占额度。
+func (r *PayRefundRepository) UpdateAudit(ctx context.Context, tx db.Tx, m *model.PayRefundModel) (int64, error) {
+	m.FillUpdate(ctx)
+
+	res, err := tx.Table(payRefundTable).
+		Where("id", m.ID).
+		Where("audit_status", int8(payEnums.PayRefundAuditPending)).
+		WhereNull("deleted_at").
+		Update(map[string]any{
+			"audit_status": int8(m.AuditStatus),
+			"audit_time":   m.AuditTime,
+			"audit_by":     m.AuditBy,
+			"audit_remark": m.AuditRemark,
+			"status":       int8(m.Status),
+			"updater":      m.Updater,
+			"updated_at":   m.UpdatedAt,
 		})
 	if err != nil {
 		return 0, err

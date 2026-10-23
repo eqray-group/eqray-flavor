@@ -19,6 +19,8 @@ type PayRefundCreateRequest struct {
 	Reason string `form:"reason" json:"reason"`
 	// UserIP 操作人 IP，渠道风控使用
 	UserIP string `form:"userIp" json:"userIp"`
+	// NeedAudit 是否需要审核：true 时只生成退款单，审核通过后才真正退钱
+	NeedAudit bool `form:"needAudit" json:"needAudit"`
 }
 
 // Rules 返回校验规则，由 Controller 交给 param.Bind 执行。
@@ -28,6 +30,27 @@ func (r *PayRefundCreateRequest) Rules(ctx http.Context) map[string]any {
 		"refundPrice":      "required|integer|min:1",
 		"reason":           "max:255",
 		"userIp":           "max:64",
+	}
+}
+
+// PayRefundAuditRequest 是退款审核的入参。
+// 通过时备注可选，驳回时必须填写原因，便于后续追查。
+type PayRefundAuditRequest struct {
+	// Remark 审核意见 / 驳回原因
+	Remark string `form:"remark" json:"remark"`
+}
+
+// Rules 返回校验规则。
+func (r *PayRefundAuditRequest) Rules(ctx http.Context) map[string]any {
+	return map[string]any{
+		"remark": "max:255",
+	}
+}
+
+// Messages 覆盖默认提示。
+func (r *PayRefundAuditRequest) Messages(ctx http.Context) map[string]string {
+	return map[string]string{
+		"remark.max": "审核意见不能超过 255 个字符",
 	}
 }
 

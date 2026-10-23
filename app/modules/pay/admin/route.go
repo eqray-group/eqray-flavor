@@ -63,6 +63,8 @@ func Register() {
 
 		// ---------- 支付单 ----------
 		// 创建即调起渠道；金额只认服务端试算结果，前端无法改写应付金额。
+		// 导出是静态路径，必须排在 /orders/{id} 之前
+		perm("pay:order:list").Get("/orders/export", orderController.Export)
 		perm("pay:order:list").Get("/orders", orderController.Index)
 		perm("pay:order:list").Get("/orders/{id}", orderController.Show)
 		perm("pay:order:create").Middleware(operate("支付管理", "创建支付单")).
@@ -77,10 +79,16 @@ func Register() {
 
 		// ---------- 退款 ----------
 		// 退款金额与可退额度由服务层校验，前端不能绕过；退款结果以渠道回调为准
+		perm("pay:refund:list").Get("/refunds/export", refundController.Export)
 		perm("pay:refund:list").Get("/refunds", refundController.Index)
 		perm("pay:refund:list").Get("/refunds/{id}", refundController.Show)
 		perm("pay:refund:create").Middleware(operate("支付管理", "发起退款")).
 			Post("/refunds", refundController.Store)
+		// 审核与发起拆开授权：能提申请的人不一定能放款
+		perm("pay:refund:audit").Middleware(operate("退款管理", "审核通过退款")).
+			Put("/refunds/{id}/approve", refundController.Approve)
+		perm("pay:refund:audit").Middleware(operate("退款管理", "驳回退款")).
+			Put("/refunds/{id}/reject", refundController.Reject)
 
 		// ---------- 回调通知任务 ----------
 		// 只读：任务由支付 / 退款成功时自动登记，派发靠定时任务，后台不提供手工重发
@@ -92,6 +100,7 @@ func Register() {
 		perm("pay:wallet:list").Get("/wallets", walletController.Index)
 		perm("pay:wallet:list").Get("/wallets/{id}", walletController.Show)
 		perm("pay:wallet:list").Get("/wallets/{id}/transactions", walletController.Transactions)
+		perm("pay:wallet:list").Get("/wallets/{id}/transactions/export", walletController.ExportTransactions)
 		perm("pay:wallet:update").Middleware(operate("支付管理", "调整钱包余额")).
 			Post("/wallets/{id}/balance", walletController.ChangeBalance)
 

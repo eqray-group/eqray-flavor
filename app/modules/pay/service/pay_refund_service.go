@@ -35,6 +35,8 @@ type PayRefundListQuery struct {
 	ChannelCode string
 	// Status 退款状态，nil 表示不限
 	Status *payEnums.PayRefundStatusEnum
+	// AuditStatus 审核状态，nil 表示不限
+	AuditStatus *payEnums.PayRefundAuditStatusEnum
 }
 
 // PayRefundCreateInput 是发起退款的入参，金额单位为分。
@@ -49,6 +51,8 @@ type PayRefundCreateInput struct {
 	Reason string
 	// UserIP 操作人 IP
 	UserIP string
+	// NeedAudit 是否需要审核：true 时只落退款单待审核，不动钱也不提交渠道
+	NeedAudit bool
 }
 
 // PayRefundRow 是退款单列表 / 详情输出，补上渠道与状态文案。
@@ -58,6 +62,8 @@ type PayRefundRow struct {
 	ChannelName string `json:"channelName"`
 	// StatusName 状态文案，如「等待退款」
 	StatusName string `json:"statusName"`
+	// AuditStatusName 审核状态文案，如「待审核」
+	AuditStatusName string `json:"auditStatusName"`
 }
 
 // PayRefundService 负责退款申请的受理、渠道调用与状态推进，对齐 yudao PayRefundService。
@@ -95,6 +101,10 @@ func (s *PayRefundService) Page(ctx context.Context, q PayRefundListQuery, pageN
 	if q.Status != nil {
 		status := int8(*q.Status)
 		filter.Status = &status
+	}
+	if q.AuditStatus != nil {
+		auditStatus := int8(*q.AuditStatus)
+		filter.AuditStatus = &auditStatus
 	}
 
 	rows, total, err := s.refunds.Paginate(ctx, filter, pageNo, pageSize)
@@ -184,6 +194,37 @@ func (s *PayRefundService) Create(ctx context.Context, in PayRefundCreateInput) 
 		return nil, baseErrs.New(payErrs.PayChannelNotExists)
 	}
 
+	// 待审核：只落一张退款单占住额度，既不调渠道也不动钱，
+	// 由后台审核通过后再走 submitRefund
+	if in.NeedAudit {
+		refund := &model.PayRefundModel{
+			No:               newPayRefundNo(),
+			AppID:            order.AppID,
+			ChannelID:        channel.ID,
+			ChannelCode:      channel.Code,
+			OrderID:          order.ID,
+			OrderNo:          order.No,
+			MerchantOrderID:  order.MerchantOrderID,
+			MerchantRefundID: in.MerchantRefundID,
+			Status:           payEnums.PayRefundStatusCreate,
+			PayPrice:         order.Price,
+			RefundPrice:      in.RefundPrice,
+			Reason:           in.Reason,
+			UserIP:           in.UserIP,
+			ChannelOrderNo:   order.ChannelOrderNo,
+			AuditStatus:      payEnums.PayRefundAuditPending,
+		}
+		if err := facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
+			return s.refunds.Create(ctx, tx, refund)
+		}); err != nil {
+			return nil, err
+		}
+
+		row := decoratePayRefund(*refund)
+
+		return &row, nil
+	}
+
 	gateway, err := NewChannelGateway(channel)
 	if err != nil {
 		return nil, err
@@ -204,6 +245,7 @@ func (s *PayRefundService) Create(ctx context.Context, in PayRefundCreateInput) 
 		Reason:           in.Reason,
 		UserIP:           in.UserIP,
 		ChannelOrderNo:   order.ChannelOrderNo,
+		AuditStatus:      payEnums.PayRefundAuditNone,
 	}
 	if err := facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
 		return s.refunds.Create(ctx, tx, refund)
@@ -211,13 +253,20 @@ func (s *PayRefundService) Create(ctx context.Context, in PayRefundCreateInput) 
 		return nil, err
 	}
 
+	return s.submitRefund(ctx, order, refund, gateway)
+}
+
+// submitRefund 把已落库的退款单提交渠道并回写结果。
+// 入参：支付单、退款单与渠道网关；返回更新后的退款单。
+// 说明：审核通过时复用这段逻辑，保证「直接退款」与「审核后退款」走同一条路径。
+func (s *PayRefundService) submitRefund(ctx context.Context, order *model.PayOrderModel, refund *model.PayRefundModel, gateway ChannelGateway) (*PayRefundRow, error) {
 	channelRefundNo, finished, refundErr := gateway.Refund(ctx, RefundRequest{
 		No:          order.No,
 		RefundNo:    refund.No,
 		PayPrice:    order.Price,
 		RefundPrice: refund.RefundPrice,
 		Reason:      refund.Reason,
-		NotifyURL:   channelRefundNotifyURL(channel.ID),
+		NotifyURL:   channelRefundNotifyURL(order.ChannelID),
 	})
 	if refundErr != nil {
 		s.recordRefundError(ctx, refund, refundErr)
@@ -269,6 +318,35 @@ func (s *PayRefundService) createWalletRefund(ctx context.Context, order *model.
 		return nil, err
 	}
 
+	// 待审核：只落退款单占住额度，余额回冲等审核通过后再做
+	if in.NeedAudit {
+		refund := &model.PayRefundModel{
+			No:               newPayRefundNo(),
+			AppID:            order.AppID,
+			ChannelCode:      order.ChannelCode,
+			OrderID:          order.ID,
+			OrderNo:          order.No,
+			MerchantOrderID:  order.MerchantOrderID,
+			MerchantRefundID: in.MerchantRefundID,
+			Status:           payEnums.PayRefundStatusCreate,
+			PayPrice:         order.Price,
+			RefundPrice:      in.RefundPrice,
+			Reason:           in.Reason,
+			UserIP:           in.UserIP,
+			ChannelOrderNo:   order.ChannelOrderNo,
+			AuditStatus:      payEnums.PayRefundAuditPending,
+		}
+		if err := facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
+			return s.refunds.Create(ctx, tx, refund)
+		}); err != nil {
+			return nil, err
+		}
+
+		row := decoratePayRefund(*refund)
+
+		return &row, nil
+	}
+
 	now := types.DateTime(time.Now())
 	refund := &model.PayRefundModel{
 		No:               newPayRefundNo(),
@@ -312,6 +390,148 @@ func (s *PayRefundService) createWalletRefund(ctx context.Context, order *model.
 	row := decoratePayRefund(*refund)
 
 	return &row, nil
+}
+
+// ApproveRefund 审核通过退款申请：提交渠道，钱包单直接回冲余额。
+// 入参：退款单 ID、审核人与审核意见；返回更新后的退款单。
+// 约束：只有待审核的单能通过；审核结果先落库再调渠道，重复点击由条件更新挡住。
+func (s *PayRefundService) ApproveRefund(ctx context.Context, id, auditorID types.ID, remark string) (*PayRefundRow, error) {
+	refund, err := s.findByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if refund.AuditStatus != payEnums.PayRefundAuditPending {
+		return nil, baseErrs.New(payErrs.PayRefundAuditStatusInvalid, refund.AuditStatus.String())
+	}
+
+	order, err := s.orders.FindByID(ctx, refund.OrderID)
+	if err != nil {
+		return nil, err
+	}
+	if order == nil {
+		return nil, baseErrs.New(payErrs.PayOrderNotExists)
+	}
+
+	now := types.DateTime(time.Now())
+	refund.AuditStatus = payEnums.PayRefundAuditApproved
+	refund.AuditTime = &now
+	refund.AuditBy = auditorID
+	refund.AuditRemark = strings.TrimSpace(remark)
+
+	// 钱包支付单没有渠道，审核通过即在事务内回冲余额并置为成功
+	if refund.ChannelCode == payEnums.ChannelWallet {
+		if err := s.approveWalletRefund(ctx, order, refund); err != nil {
+			return nil, err
+		}
+
+		row := decoratePayRefund(*refund)
+
+		return &row, nil
+	}
+
+	if err := facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
+		rows, err := s.refunds.UpdateAudit(ctx, tx, refund)
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return baseErrs.New(payErrs.PayRefundAuditStatusInvalid, refund.AuditStatus.String())
+		}
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	// 退款不受渠道开关影响：渠道已停用也要能退历史单
+	channel, err := s.channels.FindByID(ctx, order.ChannelID)
+	if err != nil {
+		return nil, err
+	}
+	if channel == nil {
+		return nil, baseErrs.New(payErrs.PayChannelNotExists)
+	}
+
+	gateway, err := NewChannelGateway(channel)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.submitRefund(ctx, order, refund, gateway)
+}
+
+// approveWalletRefund 审核通过钱包退款：累计已退金额、回冲余额并登记通知任务。
+// 入参：支付单与已带审核结果的退款单；返回错误表示充值单校验或金额条件不通过。
+// 约束：审核结果、支付单累计退款与钱包回冲在同一事务，避免出现「审核过了钱没退」。
+func (s *PayRefundService) approveWalletRefund(ctx context.Context, order *model.PayOrderModel, refund *model.PayRefundModel) error {
+	if err := s.wallet.CheckRechargeRefund(ctx, order.ID, refund.RefundPrice); err != nil {
+		return err
+	}
+
+	now := types.DateTime(time.Now())
+	refund.Status = payEnums.PayRefundStatusSuccess
+	refund.SuccessTime = &now
+
+	return facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
+		rows, err := s.refunds.UpdateAudit(ctx, tx, refund)
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return baseErrs.New(payErrs.PayRefundAuditStatusInvalid, refund.AuditStatus.String())
+		}
+
+		refunded, err := s.orders.MarkRefunded(ctx, tx, order.ID, refund.RefundPrice)
+		if err != nil {
+			return err
+		}
+		if refunded == 0 {
+			return baseErrs.New(payErrs.PayRefundExceedOrderPrice)
+		}
+
+		if err := s.wallet.ApplyWalletRefundInTx(ctx, tx, order, refund.ID, refund.RefundPrice); err != nil {
+			return err
+		}
+
+		return s.notifyTasks.CreateRefundTask(ctx, tx, refund)
+	})
+}
+
+// RejectRefund 审核驳回退款申请：退款单直接关闭，不动钱。
+// 入参：退款单 ID、审核人与驳回原因；返回错误表示状态不允许或原因为空。
+func (s *PayRefundService) RejectRefund(ctx context.Context, id, auditorID types.ID, remark string) error {
+	remark = strings.TrimSpace(remark)
+	if remark == "" {
+		return baseErrs.New(payErrs.PayRefundAuditRemarkRequired)
+	}
+
+	refund, err := s.findByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	if refund.AuditStatus != payEnums.PayRefundAuditPending {
+		return baseErrs.New(payErrs.PayRefundAuditStatusInvalid, refund.AuditStatus.String())
+	}
+
+	now := types.DateTime(time.Now())
+	refund.AuditStatus = payEnums.PayRefundAuditRejected
+	refund.AuditTime = &now
+	refund.AuditBy = auditorID
+	refund.AuditRemark = remark
+	// 关闭退款单，避免一条永远停在「退款订单生成」的记录继续占用可退额度
+	refund.Status = payEnums.PayRefundStatusClose
+
+	return facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
+		rows, err := s.refunds.UpdateAudit(ctx, tx, refund)
+		if err != nil {
+			return err
+		}
+		if rows == 0 {
+			return baseErrs.New(payErrs.PayRefundAuditStatusInvalid, refund.AuditStatus.String())
+		}
+
+		return nil
+	})
 }
 
 // ConfirmRefund 由退款回调调用：把等待中的退款单置为成功并累计支付单已退金额。
@@ -390,9 +610,10 @@ func (s *PayRefundService) findByID(ctx context.Context, id types.ID) (*model.Pa
 // decoratePayRefund 为退款单补齐渠道中文名与状态文案。
 func decoratePayRefund(m model.PayRefundModel) PayRefundRow {
 	return PayRefundRow{
-		PayRefundModel: m,
-		ChannelName:    payEnums.ChannelLabel(m.ChannelCode),
-		StatusName:     m.Status.String(),
+		PayRefundModel:  m,
+		ChannelName:     payEnums.ChannelLabel(m.ChannelCode),
+		StatusName:      m.Status.String(),
+		AuditStatusName: m.AuditStatus.String(),
 	}
 }
 

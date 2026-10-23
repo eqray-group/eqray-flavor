@@ -288,6 +288,20 @@ declare namespace Api {
       defaultStatus: number
     }
 
+    /** 收货地址新增 / 编辑参数 */
+    interface AddressSaveParams {
+      /** 收件人 */
+      name: string
+      /** 手机号 */
+      mobile: string
+      /** 行政区划 ID */
+      areaId?: number
+      /** 详细地址 */
+      detailAddress: string
+      /** 是否设为默认：0 否 / 1 是 */
+      defaultStatus?: number
+    }
+
     /** 会员标签 */
     interface TagItem {
       id: string

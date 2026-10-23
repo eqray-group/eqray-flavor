@@ -102,6 +102,40 @@ export function fetchGetMemberAddresses(id: string) {
   })
 }
 
+// 新增会员收货地址（后台代客维护）
+export function fetchCreateMemberAddress(id: string, data: Api.Member.AddressSaveParams) {
+  return request.post<string>({
+    url: `/api/v1/member/users/${id}/addresses`,
+    params: data
+  })
+}
+
+// 修改会员收货地址
+export function fetchUpdateMemberAddress(
+  id: string,
+  addressId: string,
+  data: Api.Member.AddressSaveParams
+) {
+  return request.put<null>({
+    url: `/api/v1/member/users/${id}/addresses/${addressId}`,
+    params: data
+  })
+}
+
+// 删除会员收货地址
+export function fetchDeleteMemberAddress(id: string, addressId: string) {
+  return request.del<null>({
+    url: `/api/v1/member/users/${id}/addresses/${addressId}`
+  })
+}
+
+// 设为默认收货地址
+export function fetchSetDefaultMemberAddress(id: string, addressId: string) {
+  return request.put<null>({
+    url: `/api/v1/member/users/${id}/addresses/${addressId}/default`
+  })
+}
+
 // 获取会员第三方账号绑定（后台只读）
 export function fetchGetMemberSocialBindings(id: string) {
   return request.get<Api.Member.SocialBindingItem[]>({

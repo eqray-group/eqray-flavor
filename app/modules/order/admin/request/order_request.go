@@ -31,6 +31,72 @@ func (r *OrderTransitRequest) Messages(ctx http.Context) map[string]string {
 	}
 }
 
+// OrderRemarkRequest 是修改订单备注的入参。
+// 顾客备注与商家备注分列存放，店员修改商家备注不会覆盖顾客原始诉求。
+type OrderRemarkRequest struct {
+	// Remark 顾客备注，空串表示清空
+	Remark string `form:"remark" json:"remark"`
+	// MerchantRemark 商家备注，空串表示清空
+	MerchantRemark string `form:"merchantRemark" json:"merchantRemark"`
+}
+
+// Rules 返回校验规则。
+func (r *OrderRemarkRequest) Rules(ctx http.Context) map[string]any {
+	return map[string]any{
+		"remark":         "max:255",
+		"merchantRemark": "max:255",
+	}
+}
+
+// Messages 返回中文提示。
+func (r *OrderRemarkRequest) Messages(ctx http.Context) map[string]string {
+	return map[string]string{
+		"remark.max":         "顾客备注不能超过 255 个字符",
+		"merchantRemark.max": "商家备注不能超过 255 个字符",
+	}
+}
+
+// OrderAdjustPriceRequest 是订单改价入参，金额单位为分。
+type OrderAdjustPriceRequest struct {
+	// Delta 改价差额（分）：正数加价、负数减免
+	Delta int64 `form:"delta" json:"delta"`
+}
+
+// Rules 返回校验规则。
+func (r *OrderAdjustPriceRequest) Rules(ctx http.Context) map[string]any {
+	return map[string]any{
+		"delta": "required|integer",
+	}
+}
+
+// Messages 返回中文提示。
+func (r *OrderAdjustPriceRequest) Messages(ctx http.Context) map[string]string {
+	return map[string]string{
+		"delta.required": "改价金额不能为空",
+		"delta.integer":  "改价金额必须是整数（单位分）",
+	}
+}
+
+// OrderAssignRiderRequest 是订单派单入参。
+type OrderAssignRiderRequest struct {
+	// RiderID 骑手 ID
+	RiderID types.ID `form:"riderId" json:"riderId"`
+}
+
+// Rules 返回校验规则。
+func (r *OrderAssignRiderRequest) Rules(ctx http.Context) map[string]any {
+	return map[string]any{
+		"riderId": "required",
+	}
+}
+
+// Messages 返回中文提示。
+func (r *OrderAssignRiderRequest) Messages(ctx http.Context) map[string]string {
+	return map[string]string{
+		"riderId.required": "请选择配送骑手",
+	}
+}
+
 // OrderPageRequest 是订单列表查询入参。
 type OrderPageRequest struct {
 	// StoreID 门店，缺省按当前用户可见门店集合

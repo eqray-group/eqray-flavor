@@ -47,6 +47,13 @@
           placeholder="选填，会同步给渠道"
         />
       </ElFormItem>
+
+      <ElFormItem label="先审核">
+        <ElSwitch v-model="form.needAudit" />
+        <span class="ml-2 text-xs text-g-600">
+          开启后只生成退款单，需在「退款单」页审核通过才真正退钱
+        </span>
+      </ElFormItem>
     </ElForm>
     <div class="text-xs text-g-600">
       渠道同步确认完成的会立即变为「退款成功」；微信通常在处理中，需等退款回调补齐。
@@ -91,7 +98,9 @@
   const form = reactive({
     refundYuan: 0.01 as number | null,
     merchantRefundId: '',
-    reason: ''
+    reason: '',
+    // 默认走审核，避免店员一键把钱退出去
+    needAudit: true
   })
 
   // 可退金额（分）= 实付 - 已退，等待中的退款由服务端再校验
@@ -121,6 +130,7 @@
       form.refundYuan = Number(formatYuan(refundable.value))
       form.merchantRefundId = ''
       form.reason = ''
+      form.needAudit = true
       nextTick(() => formRef.value?.clearValidate())
     },
     { immediate: true }
@@ -145,9 +155,14 @@
         orderId: props.order.id,
         merchantRefundId: form.merchantRefundId,
         refundPrice,
-        reason: form.reason || undefined
+        reason: form.reason || undefined,
+        needAudit: form.needAudit
       })
-      ElMessage.success(refund?.status === 1 ? '退款成功' : '退款已提交，等待渠道处理结果')
+      if (form.needAudit) {
+        ElMessage.success('退款申请已提交，待审核通过后放款')
+      } else {
+        ElMessage.success(refund?.status === 1 ? '退款成功' : '退款已提交，等待渠道处理结果')
+      }
       dialogVisible.value = false
       emit('success')
     } catch {

@@ -122,6 +122,44 @@ func (r *MemberPointRequest) Messages(ctx http.Context) map[string]string {
 	}
 }
 
+// MemberAddressRequest 是后台代客维护收货地址的入参。
+// 字段与 C 端 MemberAddressInput 对齐，校验规则集中在一处复用。
+type MemberAddressRequest struct {
+	// Name 收件人
+	Name string `form:"name" json:"name"`
+	// Mobile 手机号
+	Mobile string `form:"mobile" json:"mobile"`
+	// AreaID 行政区划 ID
+	AreaID int `form:"areaId" json:"areaId"`
+	// DetailAddress 详细地址
+	DetailAddress string `form:"detailAddress" json:"detailAddress"`
+	// DefaultStatus 是否设为默认：0 否 / 1 是
+	DefaultStatus int8 `form:"defaultStatus" json:"defaultStatus"`
+}
+
+// Rules 返回校验规则。
+func (r *MemberAddressRequest) Rules(ctx http.Context) map[string]any {
+	return map[string]any{
+		"name":          "required|max:32",
+		"mobile":        "required|max:20",
+		"areaId":        "integer|min:0",
+		"detailAddress": "required|max:255",
+		"defaultStatus": "integer|min:0|max:1",
+	}
+}
+
+// Messages 覆盖默认提示。
+func (r *MemberAddressRequest) Messages(ctx http.Context) map[string]string {
+	return map[string]string{
+		"name.required":          "请填写收件人",
+		"name.max":               "收件人不能超过 32 个字符",
+		"mobile.required":        "请填写手机号",
+		"mobile.max":             "手机号不能超过 20 个字符",
+		"detailAddress.required": "请填写详细地址",
+		"detailAddress.max":      "详细地址不能超过 255 个字符",
+	}
+}
+
 // MemberLevelAdjustRequest 是调整会员等级 / 经验值的入参。
 type MemberLevelAdjustRequest struct {
 	LevelID     types.ID `form:"levelId" json:"levelId"`

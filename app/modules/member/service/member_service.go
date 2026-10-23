@@ -542,6 +542,47 @@ func (s *MemberService) Addresses(ctx context.Context, id types.ID) ([]model.Mem
 	return s.members.Addresses(ctx, id)
 }
 
+// CreateAddress 为指定会员新增收货地址（后台代客维护）。
+// 入参：会员 ID 与地址内容；返回新地址 ID，会员不存在时返回业务错误。
+// 说明：上限、默认地址与字段规范全部复用 MemberAddressService，避免后台与 C 端两套规则漂移。
+func (s *MemberService) CreateAddress(ctx context.Context, memberID types.ID, in MemberAddressInput) (types.ID, error) {
+	if _, err := s.Detail(ctx, memberID); err != nil {
+		return 0, err
+	}
+
+	return NewMemberAddressService().Create(ctx, memberID, in)
+}
+
+// UpdateAddress 修改指定会员的收货地址。
+// 入参：会员 ID、地址 ID 与地址内容；地址不属于该会员时按不存在处理。
+func (s *MemberService) UpdateAddress(ctx context.Context, memberID, addressID types.ID, in MemberAddressInput) error {
+	if _, err := s.Detail(ctx, memberID); err != nil {
+		return err
+	}
+
+	return NewMemberAddressService().Update(ctx, memberID, addressID, in)
+}
+
+// DeleteAddress 删除指定会员的收货地址。
+// 入参：会员 ID 与地址 ID；地址不属于该会员时按不存在处理。
+func (s *MemberService) DeleteAddress(ctx context.Context, memberID, addressID types.ID) error {
+	if _, err := s.Detail(ctx, memberID); err != nil {
+		return err
+	}
+
+	return NewMemberAddressService().Delete(ctx, memberID, addressID)
+}
+
+// SetDefaultAddress 把指定地址设为会员默认收货地址。
+// 入参：会员 ID 与地址 ID；设置时同一会员的其它地址会被取消默认。
+func (s *MemberService) SetDefaultAddress(ctx context.Context, memberID, addressID types.ID) error {
+	if _, err := s.Detail(ctx, memberID); err != nil {
+		return err
+	}
+
+	return NewMemberAddressService().SetDefault(ctx, memberID, addressID)
+}
+
 // ensureLevel 校验会员引用的等级存在且启用，避免写入悬空等级。
 func (s *MemberService) ensureLevel(ctx context.Context, levelID types.ID) error {
 	if levelID == 0 {

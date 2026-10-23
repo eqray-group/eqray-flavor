@@ -235,6 +235,100 @@ func (c *MemberController) Addresses(ctx http.Context) http.Response {
 	return result.Success(ctx, list)
 }
 
+// AddressStore 为会员新增收货地址（后台代客维护）。
+// 入参：路径 id + 地址内容；返回新地址 ID。
+func (c *MemberController) AddressStore(ctx http.Context) http.Response {
+	var req request.MemberAddressRequest
+	if err := param.Bind(ctx, &req); err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	memberID, err := param.PathID(ctx)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	id, err := c.service.CreateAddress(ctx.Context(), memberID, toAddressInput(req))
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	return result.Success(ctx, id)
+}
+
+// AddressUpdate 修改会员的收货地址。
+// 入参：路径 id 与 addressId + 地址内容；返回空数据表示保存成功。
+func (c *MemberController) AddressUpdate(ctx http.Context) http.Response {
+	var req request.MemberAddressRequest
+	if err := param.Bind(ctx, &req); err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	memberID, err := param.PathID(ctx)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+	addressID, err := param.RouteID(ctx, "addressId")
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	if err := c.service.UpdateAddress(ctx.Context(), memberID, addressID, toAddressInput(req)); err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	return result.Success(ctx, nil)
+}
+
+// AddressDestroy 删除会员的收货地址。
+// 入参：路径 id 与 addressId；返回空数据表示删除成功。
+func (c *MemberController) AddressDestroy(ctx http.Context) http.Response {
+	memberID, err := param.PathID(ctx)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+	addressID, err := param.RouteID(ctx, "addressId")
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	if err := c.service.DeleteAddress(ctx.Context(), memberID, addressID); err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	return result.Success(ctx, nil)
+}
+
+// AddressSetDefault 把会员的某个地址设为默认。
+// 入参：路径 id 与 addressId；返回空数据表示设置成功。
+func (c *MemberController) AddressSetDefault(ctx http.Context) http.Response {
+	memberID, err := param.PathID(ctx)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+	addressID, err := param.RouteID(ctx, "addressId")
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	if err := c.service.SetDefaultAddress(ctx.Context(), memberID, addressID); err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	return result.Success(ctx, nil)
+}
+
+// toAddressInput 把请求对象转成服务层入参，复用 C 端的字段规范。
+func toAddressInput(req request.MemberAddressRequest) service.MemberAddressInput {
+	return service.MemberAddressInput{
+		Name:          req.Name,
+		Mobile:        req.Mobile,
+		AreaID:        req.AreaID,
+		DetailAddress: req.DetailAddress,
+		DefaultStatus: req.DefaultStatus,
+	}
+}
+
 // SocialBindings 管理端只读查看会员绑定的第三方账号，不支持在此解绑。
 // 入参：路径 id；返回绑定记录列表。
 func (c *MemberController) SocialBindings(ctx http.Context) http.Response {

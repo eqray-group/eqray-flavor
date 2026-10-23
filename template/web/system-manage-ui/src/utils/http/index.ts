@@ -255,6 +255,44 @@ const api = {
   },
   request<T>(config: ExtendedAxiosRequestConfig) {
     return retryRequest<T>(config)
+  },
+  /**
+   * 下载文件：响应体是二进制流，不能按统一 JSON 结构解析。
+   * 后端出错时会返回 JSON 错误体，这里还原成 HttpError 交给调用方提示。
+   */
+  async download(config: ExtendedAxiosRequestConfig): Promise<Blob> {
+    try {
+      const res = await axiosInstance.request<Blob>({ ...config, responseType: 'blob' })
+      const contentType = String(res.headers['content-type'] || '')
+      if (contentType.includes('application/json')) {
+        const text = await (res.data as Blob).text()
+        try {
+          const parsed = JSON.parse(text) as BaseResponse
+          throw createHttpError(parsed.msg || '下载失败', parsed.code ?? ApiStatus.error)
+        } catch (error) {
+          if (error instanceof HttpError) throw error
+          throw createHttpError('下载失败', ApiStatus.error)
+        }
+      }
+
+      return res.data
+    } catch (error) {
+      // 令牌过期时与普通请求一致：先刷新再重试一次
+      if (
+        error instanceof HttpError &&
+        error.code === ApiStatus.unauthorized &&
+        !config.__retried
+      ) {
+        const accessToken = await refreshAccessToken()
+        if (accessToken) return api.download({ ...config, __retried: true })
+      }
+
+      // 下载不走统一 request() 的错误提示，这里补上，避免失败时毫无反馈
+      if (error instanceof HttpError) {
+        showError(error, config.showErrorMessage !== false)
+      }
+      throw error
+    }
   }
 }
 

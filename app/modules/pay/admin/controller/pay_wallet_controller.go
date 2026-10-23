@@ -1,15 +1,33 @@
 package controller
 
 import (
+	"time"
+
 	"github.com/goravel/framework/contracts/http"
 
 	"eqray-flavor/app/modules/base/param"
 	"eqray-flavor/app/modules/base/result"
+	"eqray-flavor/app/modules/base/types"
 	"eqray-flavor/app/modules/pay/admin/request"
 	payEnums "eqray-flavor/app/modules/pay/enums"
 	"eqray-flavor/app/modules/pay/repository"
 	"eqray-flavor/app/modules/pay/service"
 )
+
+// buildWalletTransactionFilter 解析流水筛选参数，列表与导出共用。
+func buildWalletTransactionFilter(ctx http.Context, walletID types.ID) repository.PayWalletTransactionFilter {
+	filter := repository.PayWalletTransactionFilter{WalletID: walletID}
+	if raw := ctx.Request().QueryInt("bizType", 0); raw > 0 {
+		bizType := payEnums.PayWalletBizTypeEnum(int8(raw))
+		filter.BizType = &bizType
+	}
+	if raw := ctx.Request().Query("type"); raw != "" {
+		direction := int8(ctx.Request().QueryInt("type", 0))
+		filter.Type = &direction
+	}
+
+	return filter
+}
 
 // PayWalletController 提供会员钱包的查询、流水与余额调整接口。
 type PayWalletController struct {
@@ -77,15 +95,7 @@ func (c *PayWalletController) Transactions(ctx http.Context) http.Response {
 		return result.Fail(ctx, err)
 	}
 
-	filter := repository.PayWalletTransactionFilter{WalletID: id}
-	if raw := ctx.Request().QueryInt("bizType", 0); raw > 0 {
-		bizType := payEnums.PayWalletBizTypeEnum(int8(raw))
-		filter.BizType = &bizType
-	}
-	if raw := ctx.Request().Query("type"); raw != "" {
-		direction := int8(ctx.Request().QueryInt("type", 0))
-		filter.Type = &direction
-	}
+	filter := buildWalletTransactionFilter(ctx, id)
 
 	list, total, err := c.service.Transactions(ctx.Context(), filter, page.PageNo, page.PageSize)
 	if err != nil {
@@ -93,6 +103,26 @@ func (c *PayWalletController) Transactions(ctx http.Context) http.Response {
 	}
 
 	return result.Page(ctx, list, total)
+}
+
+// ExportTransactions 导出该钱包的流水 CSV，用于会员余额对账。
+// 入参：路径 id + bizType、type 筛选；返回 CSV 文件流。
+func (c *PayWalletController) ExportTransactions(ctx http.Context) http.Response {
+	id, err := param.PathID(ctx)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	data, err := c.service.ExportTransactions(ctx.Context(), buildWalletTransactionFilter(ctx, id))
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	filename := "wallet-transactions-" + time.Now().Format("20060102150405") + ".csv"
+
+	return ctx.Response().
+		Header("Content-Disposition", `attachment; filename="`+filename+`"`).
+		Data(http.StatusOK, "text/csv; charset=utf-8", data)
 }
 
 // ChangeBalance 调整钱包余额：price 为正表示加款、为负表示扣款，均写一条流水。

@@ -53,6 +53,15 @@ type PayRefundModel struct {
 	ChannelErrorMsg string `db:"channel_error_msg" json:"channelErrorMsg"`
 	// ChannelNotifyData 渠道退款通知原文
 	ChannelNotifyData string `db:"channel_notify_data" json:"channelNotifyData"`
+	// AuditStatus 审核状态：0 无需审核 / 1 待审核 / 2 已通过 / 3 已驳回
+	// 与 status 解耦：审核通过的退款单才提交渠道，状态机仍按 yudao 的 0/1/2/99 走
+	AuditStatus enums.PayRefundAuditStatusEnum `db:"audit_status" json:"auditStatus"`
+	// AuditTime 审核时间
+	AuditTime *types.DateTime `db:"audit_time" json:"auditTime"`
+	// AuditBy 审核人后台用户 ID
+	AuditBy types.ID `db:"audit_by" json:"auditBy"`
+	// AuditRemark 审核意见 / 驳回原因
+	AuditRemark string `db:"audit_remark" json:"auditRemark"`
 }
 
 // TableName 返回表名，供仓储层构造查询时引用。

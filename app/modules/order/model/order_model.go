@@ -68,6 +68,14 @@ type CaterOrderModel struct {
 	ReceiverAddress string `db:"receiver_address" json:"receiverAddress"`
 	// Remark 订单备注
 	Remark string `db:"remark" json:"remark"`
+	// MerchantRemark 商家备注，与顾客备注分列存放，店员改动不影响顾客原始诉求
+	MerchantRemark string `db:"merchant_remark" json:"merchantRemark"`
+	// AdjustAmount 改价差额（分）：正数加价、负数减免，pay_amount 已包含该差额
+	AdjustAmount int64 `db:"adjust_amount" json:"adjustAmount"`
+	// RiderID 配送骑手 ID，0 表示未派单
+	RiderID types.ID `db:"rider_id" json:"riderId"`
+	// DispatchTime 派单时间
+	DispatchTime *types.DateTime `db:"dispatch_time" json:"dispatchTime"`
 	// PayOrderID 关联支付单 ID
 	PayOrderID types.ID `db:"pay_order_id" json:"payOrderId"`
 	// PayTime 支付成功时间

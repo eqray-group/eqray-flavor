@@ -22,3 +22,27 @@ export function fetchCreatePayRefund(data: Api.Pay.RefundCreateParams) {
     params: data
   })
 }
+
+// 审核通过退款：钱包单回冲余额，渠道单提交退款
+export function fetchApprovePayRefund(id: string, data: Api.Pay.RefundAuditParams) {
+  return request.put<Api.Pay.RefundItem>({
+    url: `/api/v1/pay/refunds/${id}/approve`,
+    params: data
+  })
+}
+
+// 审核驳回退款：退款单关闭，不动钱，原因必填
+export function fetchRejectPayRefund(id: string, data: Api.Pay.RefundAuditParams) {
+  return request.put<null>({
+    url: `/api/v1/pay/refunds/${id}/reject`,
+    params: data
+  })
+}
+
+// 导出售后退款单 CSV：含审核状态，返回二进制流
+export function fetchExportPayRefunds(params: Api.Pay.RefundSearchParams) {
+  return request.download({
+    url: '/api/v1/pay/refunds/export',
+    params
+  })
+}

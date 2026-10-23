@@ -91,6 +91,9 @@ func Migrations() []schema.Migration {
 		&migrations.M20261022000015CreateStorePrintTemplateTable{},
 		&migrations.M20261022000016SeedStorePrintDicts{},
 		&migrations.M20261022000017SeedStorePrintMenu{},
+		// 打印任务：设备与模板之前只配不用，这里补上任务表与后台重打入口
+		&migrations.M20261023000049CreateStorePrintTaskTable{},
+		&migrations.M20261023000050SeedStorePrintTaskMenu{},
 
 		// ---------- dish ----------
 		&migrations.M20261022000021CreateDishCategoryTable{},
@@ -146,6 +149,15 @@ func Migrations() []schema.Migration {
 		&migrations.M20261023000041AddOrderPointsUsed{},
 		// 补放订单日志原状态列：上一个迁移漏改 from_status，写日志会溢出
 		&migrations.M20261023000042WidenOrderLogFromStatus{},
+		// 订单后台经营字段：商家备注、改价差额、骑手与派单时间
+		&migrations.M20261023000044AddOrderAdminFields{},
+		// 备注 / 改价 / 派单三个按钮权限点
+		&migrations.M20261023000045SeedOrderOpsMenu{},
+		// 会员收货地址后台维护按钮
+		&migrations.M20261023000046SeedMemberAddressMenu{},
+		// 退款审核字段与审核按钮：退款改为可先申请、再审核放款
+		&migrations.M20261023000047AddPayRefundAuditFields{},
+		&migrations.M20261023000048SeedPayRefundAuditMenu{},
 
 		// 营销模块：优惠券模板、会员券、活动与名额、积分规则，附字典与菜单
 		&migrations.M20261023000030CreatePromotionCouponTemplateTable{},
@@ -158,5 +170,7 @@ func Migrations() []schema.Migration {
 		&migrations.M20261023000037SeedPromotionMenu{},
 		// 订单占用活动名额的关联表：名额计数行无法反查订单，跨天释放会退错池子
 		&migrations.M20261023000040CreatePromotionOrderActivityTable{},
+		// 积分抵扣规则页面：接口早已就绪，但一直没有菜单入口
+		&migrations.M20261023000043SeedPromotionPointRuleMenu{},
 	}
 }

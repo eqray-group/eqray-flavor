@@ -26,6 +26,17 @@ export function fetchGetPayWalletTransactions(
   })
 }
 
+// 导出钱包流水 CSV：返回二进制流，由调用方触发下载
+export function fetchExportPayWalletTransactions(
+  id: string,
+  params: Api.Pay.WalletTransactionSearchParams
+) {
+  return request.download({
+    url: `/api/v1/pay/wallets/${id}/transactions/export`,
+    params
+  })
+}
+
 // 调整钱包余额：price 正数加款、负数扣款，后端写一条流水
 export function fetchChangePayWalletBalance(id: string, data: Api.Pay.WalletChangeParams) {
   return request.post<null>({

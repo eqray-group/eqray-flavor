@@ -29,6 +29,14 @@
         <ElOption label="支付退款" :value="4" />
         <ElOption label="手工调整" :value="5" />
       </ElSelect>
+      <ElButton
+        v-auth="'pay:wallet:list'"
+        class="ml-auto"
+        :loading="exporting"
+        @click="exportTransactions"
+      >
+        导出 CSV
+      </ElButton>
     </div>
 
     <ElTable v-loading="loading" :data="list" size="small" border max-height="560">
@@ -71,7 +79,9 @@
 </template>
 
 <script setup lang="ts">
-  import { fetchGetPayWalletTransactions } from '@/api/pay/wallet'
+  import { ElMessage } from 'element-plus'
+  import { fetchExportPayWalletTransactions, fetchGetPayWalletTransactions } from '@/api/pay/wallet'
+  import { exportFilename, saveBlob } from '@/utils/download'
 
   defineOptions({ name: 'PayWalletTransactionDrawer' })
 
@@ -94,6 +104,7 @@
   })
 
   const loading = ref(false)
+  const exporting = ref(false)
   const list = ref<Api.Pay.WalletTransactionItem[]>([])
   const total = ref(0)
 
@@ -134,6 +145,25 @@
       // 错误提示已由请求层统一弹出
     } finally {
       loading.value = false
+    }
+  }
+
+  // 按当前筛选条件导出该会员的钱包流水，用于余额对账
+  const exportTransactions = async (): Promise<void> => {
+    if (!props.wallet) return
+
+    exporting.value = true
+    try {
+      const blob = await fetchExportPayWalletTransactions(props.wallet.id, {
+        type: filter.type,
+        bizType: filter.bizType
+      })
+      saveBlob(blob, exportFilename(`wallet-${props.wallet.id}-transactions`))
+      ElMessage.success('导出成功')
+    } catch {
+      // 错误提示已由请求层统一弹出
+    } finally {
+      exporting.value = false
     }
   }
 

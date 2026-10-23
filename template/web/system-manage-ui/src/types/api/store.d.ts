@@ -485,5 +485,53 @@ declare namespace Api {
       status: number
       remark?: string
     }
+
+    /** 打印任务：一条记录表示某台设备要打一张单，正文在生成时已渲染好 */
+    interface PrintTaskItem {
+      id: string
+      storeId: string
+      storeName: string
+      printerId: string
+      printerName: string
+      templateId: string
+      /** 生成时的模板版本号 */
+      templateVersion: number
+      /** 打印类型：1 结账单 / 2 预结单 / 3 厨打 / 4 退菜 / 5 标签 / 6 退款单 / 7 交班 / 8 日结 */
+      printType: number
+      printTypeName: string
+      orderId: string
+      orderNo: string
+      /** 渲染后的打印正文 */
+      content: string
+      /** 状态：0 待打印 / 1 已打印 / 2 打印失败 / 3 已取消 */
+      status: number
+      statusName: string
+      copies: number
+      retryCount: number
+      errorMsg: string
+      printedAt?: string | null
+      createdAt?: string
+      updatedAt?: string
+    }
+
+    /** 打印任务分页结果 */
+    interface PrintTaskList {
+      list: PrintTaskItem[]
+      total: number
+    }
+
+    /** 打印任务列表查询参数，门店范围由请求头 X-Store-Id 或可见集合决定 */
+    interface PrintTaskSearchParams {
+      /** 订单号关键字 */
+      orderNo?: string
+      /** 打印类型 */
+      printType?: number
+      /** 任务状态 */
+      status?: number
+      /** 指定设备 */
+      printerId?: string
+      pageNo?: number
+      pageSize?: number
+    }
   }
 }

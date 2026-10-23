@@ -24,6 +24,7 @@ import (
 	payEnums "eqray-flavor/app/modules/pay/enums"
 	payRepository "eqray-flavor/app/modules/pay/repository"
 	payService "eqray-flavor/app/modules/pay/service"
+	storeService "eqray-flavor/app/modules/store/service"
 )
 
 // payUserTypeMember 是 C 端会员在 pay 模块的用户类型，与支付客户端约定一致。
@@ -382,7 +383,7 @@ func (s *OrderService) Transit(ctx context.Context, in TransitInput) error {
 		extra["cancel_reason"] = in.Reason
 	}
 
-	return facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
+	if err := facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
 		moved, err := s.orders.Transit(ctx, tx, order.ID, order.Status, in.To, extra)
 		if err != nil {
 			return err
@@ -425,7 +426,25 @@ func (s *OrderService) Transit(ctx context.Context, in TransitInput) error {
 		return s.orders.CreateLog(ctx, tx, orderRepository.NewOrderLogModel(
 			order.ID, order.Status, in.To, in.OperatorType, in.OperatorID, in.OperatorName, in.Reason,
 		))
-	})
+	}); err != nil {
+		return err
+	}
+
+	// 订单完成或取消后释放骑手：清空订单骑手并归还接单额度。
+	// 放在事务外是复用带条件更新的 Release，这一步失败不影响订单状态，额度由后台人工兜底。
+	if order.RiderID > 0 &&
+		(in.To == orderEnums.OrderStatusCompleted || in.To == orderEnums.OrderStatusCancelled) {
+		if _, err := s.orders.ClearRider(ctx, order.ID); err == nil {
+			_, _ = s.riders.Release(ctx, order.RiderID)
+		}
+	}
+
+	// 订单取消后把还没出纸的打印任务作废，避免撤单后后厨还在出单
+	if in.To == orderEnums.OrderStatusCancelled && s.printTasks != nil {
+		_ = s.printTasks.CancelByOrder(ctx, order.ID)
+	}
+
+	return nil
 }
 
 // Cancel 顾客取消订单：只允许待支付状态；已支付订单走退款流程。
@@ -693,7 +712,47 @@ func (s *OrderService) HandlePayNotify(ctx context.Context, headers map[string]s
 		return "error", txErr
 	}
 
+	// 支付成功后生成门店打印任务（结账单 + 厨打单）。
+	// 打印是旁路动作：门店没配设备、模板出错都不影响支付结果，后台可在打印任务页重打。
+	s.createPrintTasks(ctx, order)
+
 	return "success", nil
+}
+
+// createPrintTasks 生成订单的打印任务快照。
+// 入参：已支付成功的订单；返回无（失败静默，打印不阻断交易）。
+// 说明：明细读库失败时仍生成不含明细的单据，总比完全不打印更利于门店兜底。
+func (s *OrderService) createPrintTasks(ctx context.Context, order *orderModel.CaterOrderModel) {
+	if s.printTasks == nil || order.StoreID == 0 {
+		return
+	}
+
+	items := make([]storeService.PrintTaskItem, 0)
+	if grouped, err := s.orders.ListItemsByOrderIDs(ctx, []types.ID{order.ID}); err == nil {
+		for _, item := range grouped[order.ID] {
+			items = append(items, storeService.PrintTaskItem{
+				Name:     item.SpuName,
+				SkuName:  item.SkuName,
+				Quantity: item.Quantity,
+				Subtotal: item.Subtotal,
+				Remark:   item.Remark,
+			})
+		}
+	}
+
+	_, _ = s.printTasks.CreateForOrder(ctx, storeService.PrintTaskOrderInput{
+		StoreID:     order.StoreID,
+		OrderID:     order.ID,
+		OrderNo:     order.No,
+		PickupCode:  order.PickupCode,
+		TableName:   order.TableTitle,
+		TypeText:    order.Type.String(),
+		ChannelText: order.Channel.String(),
+		Remark:      order.Remark,
+		PayAmount:   order.PayAmount,
+		CreatedAt:   order.CreatedAt.String(),
+		Items:       items,
+	})
 }
 
 // settleMemberPoints 结算会员资产：扣减积分抵扣、累计成长值。

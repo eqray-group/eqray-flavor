@@ -83,6 +83,10 @@ type OrderRow struct {
 	ReceiverPhone      string          `json:"receiverPhone"`
 	ReceiverAddress    string          `json:"receiverAddress"`
 	Remark             string          `json:"remark"`
+	MerchantRemark     string          `json:"merchantRemark"`
+	AdjustAmount       int64           `json:"adjustAmount"`
+	RiderID            types.ID        `json:"riderId"`
+	DispatchTime       *types.DateTime `json:"dispatchTime"`
 	PayTime            *types.DateTime `json:"payTime"`
 	AcceptTime         *types.DateTime `json:"acceptTime"`
 	CompleteTime       *types.DateTime `json:"completeTime"`
@@ -279,8 +283,12 @@ func buildOrderRow(m *orderModel.CaterOrderModel) OrderRow {
 		RefundAmount: m.RefundAmount, DiscountSnapshot: m.DiscountSnapshot,
 		PickupCode:   m.PickupCode,
 		ReceiverName: m.ReceiverName, ReceiverPhone: m.ReceiverPhone, ReceiverAddress: m.ReceiverAddress,
-		Remark:  m.Remark,
-		PayTime: m.PayTime, AcceptTime: m.AcceptTime,
+		Remark:         m.Remark,
+		MerchantRemark: m.MerchantRemark,
+		AdjustAmount:   m.AdjustAmount,
+		RiderID:        m.RiderID,
+		DispatchTime:   m.DispatchTime,
+		PayTime:        m.PayTime, AcceptTime: m.AcceptTime,
 		CompleteTime: m.CompleteTime, CancelTime: m.CancelTime,
 		CancelReason: m.CancelReason, ExpireTime: m.ExpireTime,
 		CreatedAt: m.CreatedAt,

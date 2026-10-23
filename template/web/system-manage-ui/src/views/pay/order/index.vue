@@ -16,6 +16,9 @@
             <ElButton v-auth="'pay:order:create'" @click="showCreateDialog" v-ripple>
               创建支付单
             </ElButton>
+            <ElButton v-auth="'pay:order:list'" :loading="exporting" @click="exportOrders">
+              导出 CSV
+            </ElButton>
           </ElSpace>
         </template>
       </ArtTableHeader>
@@ -58,7 +61,13 @@
   import { useAuth } from '@/hooks/core/useAuth'
   import { fetchGetPayAppOptions } from '@/api/pay/app'
   import { fetchGetPayChannelOptions } from '@/api/pay/channel'
-  import { fetchClosePayOrder, fetchGetPayOrderList, fetchSyncPayOrder } from '@/api/pay/order'
+  import {
+    fetchClosePayOrder,
+    fetchExportPayOrders,
+    fetchGetPayOrderList,
+    fetchSyncPayOrder
+  } from '@/api/pay/order'
+  import { exportFilename, saveBlob } from '@/utils/download'
   import { ElButton, ElMessage, ElMessageBox, ElSpace, ElTag } from 'element-plus'
   import OrderCreateDialog from './modules/order-create-dialog.vue'
   import OrderDetailDialog from './modules/order-detail-dialog.vue'
@@ -142,6 +151,7 @@
   ])
 
   const createVisible = ref(false)
+  const exporting = ref(false)
   const detailVisible = ref(false)
   const submitVisible = ref(false)
   const refundVisible = ref(false)
@@ -300,6 +310,20 @@
   const handleSearch = (params: Api.Pay.OrderSearchParams) => {
     Object.assign(searchParams, params)
     getData()
+  }
+
+  // 导出当前筛选条件下的支付单，行数上限由后端截断
+  const exportOrders = async (): Promise<void> => {
+    exporting.value = true
+    try {
+      const blob = await fetchExportPayOrders({ ...searchParams })
+      saveBlob(blob, exportFilename('pay-orders'))
+      ElMessage.success('导出成功')
+    } catch {
+      // 错误提示已由请求层统一弹出
+    } finally {
+      exporting.value = false
+    }
   }
 
   // 打开创建支付单弹窗

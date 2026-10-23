@@ -25,6 +25,78 @@
     </div>
 
     <ElRow :gutter="20">
+      <ElCol v-for="card in businessCards" :key="card.label" :xs="24" :sm="12" :lg="6">
+        <div class="art-card relative mb-5 flex h-35 flex-col justify-center px-5 max-sm:mb-4">
+          <span class="text-sm text-g-700">{{ card.label }}</span>
+          <span class="mt-2 text-[26px] font-medium">{{ card.value }}</span>
+          <span class="mt-1 text-xs text-g-600">{{ card.tip }}</span>
+          <div
+            class="absolute top-0 right-5 bottom-0 m-auto flex-cc size-12.5 rounded-xl bg-theme/10"
+          >
+            <ArtSvgIcon :icon="card.icon" class="text-xl text-theme" />
+          </div>
+        </div>
+      </ElCol>
+    </ElRow>
+
+    <ElRow :gutter="20">
+      <ElCol :xs="24" :lg="16">
+        <div class="art-card mb-5 p-5 max-sm:mb-4">
+          <div class="art-card-header">
+            <div class="title">
+              <h4>营业额趋势</h4>
+              <p>近 7 天订单量与营业额，营业额只统计已支付订单</p>
+            </div>
+          </div>
+          <ArtLineChart
+            height="300px"
+            :data="businessTrendData"
+            :xAxisData="businessTrendLabels"
+            :showAreaColor="true"
+            :showAxisLine="false"
+            :showLegend="true"
+          />
+        </div>
+      </ElCol>
+
+      <ElCol :xs="24" :lg="8">
+        <div class="art-card mb-5 h-full p-5 max-sm:mb-4">
+          <div class="art-card-header">
+            <div class="title">
+              <h4>热销菜品</h4>
+              <p>近 7 天销量 Top5</p>
+            </div>
+          </div>
+
+          <div
+            v-if="overview.business.topProducts.length === 0"
+            class="py-12 text-center text-sm text-g-500"
+          >
+            暂无已支付订单
+          </div>
+
+          <div
+            v-for="(item, index) in overview.business.topProducts"
+            :key="item.name"
+            class="flex items-center justify-between border-b border-[var(--el-border-color-lighter)] py-3 last:border-0"
+          >
+            <div class="flex items-center gap-3">
+              <div class="flex-cc size-6 rounded-full bg-theme/10 text-xs text-theme">
+                {{ index + 1 }}
+              </div>
+              <div>
+                <p class="text-sm">{{ item.name }}</p>
+                <p class="text-xs text-g-600">
+                  销量 {{ item.quantity }} · {{ formatMoney(item.amount) }}
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </ElCol>
+    </ElRow>
+
+    <ElRow :gutter="20">
       <ElCol v-for="card in cards" :key="card.label" :xs="24" :sm="12" :lg="6">
         <div class="art-card relative mb-5 flex h-35 flex-col justify-center px-5 max-sm:mb-4">
           <span class="text-sm text-g-700">{{ card.label }}</span>
@@ -198,6 +270,15 @@
       todayRequest: 0,
       todayError: 0
     },
+    business: {
+      todayOrderCount: 0,
+      todayPaidCount: 0,
+      todaySaleAmount: 0,
+      todayRefundAmount: 0,
+      todayAvgAmount: 0,
+      orderTrend: [],
+      topProducts: []
+    },
     loginTrend: [],
     requestTrend: [],
     recentLogins: [],
@@ -229,6 +310,59 @@
     if (hour < 18) return '下午好，喝杯水休息一下'
     return '晚上好，辛苦了'
   })
+
+  // 分转元展示：金额在接口里一律是整型分
+  const formatMoney = (cent: number): string => `¥${((cent || 0) / 100).toFixed(2)}`
+
+  // 经营卡片：今日营业额、订单量、客单价与退款额
+  const businessCards = computed(() => {
+    const business = overview.value.business
+    const unpaid = Math.max(business.todayOrderCount - business.todayPaidCount, 0)
+    return [
+      {
+        label: '今日营业额',
+        value: formatMoney(business.todaySaleAmount),
+        tip: `已支付 ${business.todayPaidCount} 单`,
+        icon: 'ri:money-cny-circle-line'
+      },
+      {
+        label: '今日订单',
+        value: String(business.todayOrderCount),
+        tip: `未支付 ${unpaid} 单`,
+        icon: 'ri:file-list-3-line'
+      },
+      {
+        label: '今日客单价',
+        value: formatMoney(business.todayAvgAmount),
+        tip: '营业额 / 已支付单量',
+        icon: 'ri:bar-chart-box-line'
+      },
+      {
+        label: '今日退款',
+        value: formatMoney(business.todayRefundAmount),
+        tip: business.todayRefundAmount > 0 ? '请留意异常退款' : '暂无退款',
+        icon: 'ri:refund-2-line'
+      }
+    ]
+  })
+
+  const businessTrendLabels = computed(() =>
+    overview.value.business.orderTrend.map((item) => item.date)
+  )
+
+  const businessTrendData = computed(() => [
+    {
+      name: '营业额（元）',
+      data: overview.value.business.orderTrend.map((item) =>
+        Number(((item.saleAmount || 0) / 100).toFixed(2))
+      ),
+      showAreaColor: true
+    },
+    {
+      name: '订单量',
+      data: overview.value.business.orderTrend.map((item) => item.orderCount)
+    }
+  ])
 
   const cards = computed(() => {
     const counts = overview.value.counts
@@ -327,7 +461,22 @@
   const loadData = async (): Promise<void> => {
     loading.value = true
     try {
-      overview.value = await fetchGetDashboardOverview()
+      const data = await fetchGetDashboardOverview()
+      // 逐段兜底：经营看板是后加字段，旧服务未返回时仍要有稳定的空结构
+      overview.value = {
+        ...overview.value,
+        ...data,
+        counts: { ...overview.value.counts, ...(data.counts ?? {}) },
+        business: {
+          ...overview.value.business,
+          ...(data.business ?? {}),
+          orderTrend: data.business?.orderTrend ?? [],
+          topProducts: data.business?.topProducts ?? []
+        },
+        loginTrend: data.loginTrend ?? [],
+        requestTrend: data.requestTrend ?? [],
+        recentLogins: data.recentLogins ?? []
+      }
     } catch {
       // 错误提示已由请求层统一弹出，控制台保留空态
     } finally {

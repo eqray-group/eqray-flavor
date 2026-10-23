@@ -101,6 +101,14 @@ declare namespace Api {
       receiverPhone: string
       receiverAddress: string
       remark: string
+      /** 商家备注，与顾客备注分列保存 */
+      merchantRemark: string
+      /** 改价差额（分）：正数加价、负数减免 */
+      adjustAmount: number
+      /** 配送骑手 ID，0 表示未派单 */
+      riderId: string
+      /** 派单时间 */
+      dispatchTime: string | null
       payTime: string | null
       acceptTime: string | null
       completeTime: string | null
@@ -144,6 +152,87 @@ declare namespace Api {
       to: number
       /** 变更原因 */
       reason?: string
+    }
+
+    /** 修改订单备注入参 */
+    interface OrderRemarkParams {
+      /** 顾客备注 */
+      remark?: string
+      /** 商家备注 */
+      merchantRemark?: string
+    }
+
+    /** 订单改价入参 */
+    interface OrderAdjustPriceParams {
+      /** 改价差额（分）：正数加价、负数减免 */
+      delta: number
+    }
+
+    /** 订单派单入参 */
+    interface OrderAssignRiderParams {
+      /** 骑手 ID */
+      riderId: string
+    }
+
+    /** 可派单骑手下拉项 */
+    interface OrderRiderOption {
+      riderId: string
+      name: string
+      /** 当前进行中配送单量 */
+      currentOrders: number
+      /** 接单并发上限 */
+      maxOrders: number
+      /** 是否还有接单额度 */
+      available: boolean
+    }
+
+    /** 小票上的加料 */
+    interface OrderTicketAddon {
+      name: string
+      quantity: number
+    }
+
+    /** 小票上的菜品 */
+    interface OrderTicketItem {
+      name: string
+      skuName: string
+      quantity: number
+      /** 成交单价（分） */
+      unitPrice: number
+      /** 小计（分） */
+      subtotal: number
+      remark: string
+      addons: OrderTicketAddon[]
+    }
+
+    /** 打印小票数据 */
+    interface OrderTicket {
+      storeName: string
+      storeShortName: string
+      orderNo: string
+      pickupCode: string
+      tableName: string
+      typeText: string
+      channelText: string
+      receiverName: string
+      receiverPhone: string
+      receiverAddress: string
+      remark: string
+      merchantRemark: string
+      items: OrderTicketItem[]
+      /** 商品金额（分） */
+      itemAmount: number
+      /** 加料费（分） */
+      addonAmount: number
+      /** 优惠合计（分） */
+      discountAmount: number
+      /** 改价差额（分） */
+      adjustAmount: number
+      /** 应付金额（分） */
+      payAmount: number
+      payStatusText: string
+      createdAt: string
+      payTime: string
     }
   }
 }

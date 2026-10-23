@@ -90,6 +90,9 @@
         </ElTabPane>
 
         <ElTabPane label="收货地址" name="addresses" lazy>
+          <div class="mb-3 flex justify-end">
+            <ElButton v-if="canEditAddress" size="small" @click="openAddress()">新增地址</ElButton>
+          </div>
           <ArtTable
             :loading="addressLoading"
             :data="addresses"
@@ -97,6 +100,13 @@
             :show-table-header="false"
             height="420"
             empty-height="420"
+          />
+
+          <AddressDialog
+            v-model:visible="addressVisible"
+            :member-id="props.memberId"
+            :address="currentAddress"
+            @success="loadAddresses"
           />
         </ElTabPane>
 
@@ -189,19 +199,24 @@
 </template>
 
 <script setup lang="ts">
-  import { ElMessage, ElTag } from 'element-plus'
+  import { ElMessage, ElMessageBox, ElTag } from 'element-plus'
   import type { FormInstance, FormRules } from 'element-plus'
   import defaultAvatar from '@imgs/user/avatar.webp'
   import {
     fetchAdjustMemberLevel,
     fetchAdjustMemberPoint,
+    fetchDeleteMemberAddress,
     fetchGetMemberAddresses,
     fetchGetMemberDetail,
     fetchGetMemberLevelRecords,
     fetchGetMemberPointRecords,
     fetchGetMemberSignRecords,
-    fetchGetMemberSocialBindings
+    fetchGetMemberSocialBindings,
+    fetchSetDefaultMemberAddress
   } from '@/api/member/user'
+  import { useAuth } from '@/hooks/core/useAuth'
+  import ArtButtonTable from '@/components/core/forms/art-button-table/index.vue'
+  import AddressDialog from './address-dialog.vue'
   import { fetchGetLevelOptions } from '@/api/member/level'
   import { fetchGetTagOptions } from '@/api/member/tag'
   import { fetchGetGroupOptions } from '@/api/member/group'
@@ -495,8 +510,15 @@
   }
 
   // ---------- 收货地址 ----------
+  const { hasAuth } = useAuth()
+
+  // 后台代客维护地址需要单独的按钮权限
+  const canEditAddress = computed(() => hasAuth('member:user:address'))
+
   const addresses = ref<Api.Member.AddressItem[]>([])
   const addressLoading = ref(false)
+  const addressVisible = ref(false)
+  const currentAddress = ref<Api.Member.AddressItem | null>(null)
 
   const addressColumns = [
     { prop: 'name', label: '收件人', width: 100 },
@@ -510,8 +532,77 @@
         h(ElTag, { type: row.defaultStatus === 1 ? 'success' : 'info', effect: 'plain' }, () =>
           row.defaultStatus === 1 ? '是' : '否'
         )
-    }
+    },
+    ...(canEditAddress.value
+      ? [
+          {
+            prop: 'operation',
+            label: '操作',
+            width: 220,
+            formatter: (row: Api.Member.AddressItem) =>
+              h('div', { class: 'flex items-center' }, [
+                h(ArtButtonTable, {
+                  type: 'edit',
+                  text: '编辑',
+                  onClick: () => openAddress(row)
+                }),
+                ...(row.defaultStatus === 1
+                  ? []
+                  : [
+                      h(ArtButtonTable, {
+                        type: 'action',
+                        text: '设为默认',
+                        onClick: () => setDefaultAddress(row)
+                      })
+                    ]),
+                h(ArtButtonTable, {
+                  type: 'delete',
+                  text: '删除',
+                  onClick: () => deleteAddress(row)
+                })
+              ])
+          }
+        ]
+      : [])
   ]
+
+  // 打开地址弹窗：传 row 为编辑，不传为新增
+  const openAddress = (row?: Api.Member.AddressItem): void => {
+    currentAddress.value = row ?? null
+    addressVisible.value = true
+  }
+
+  // 设为默认：同一会员的其它地址会被后端自动取消默认
+  const setDefaultAddress = async (row: Api.Member.AddressItem): Promise<void> => {
+    try {
+      await fetchSetDefaultMemberAddress(props.memberId, row.id)
+      ElMessage.success('已设为默认地址')
+      loadAddresses()
+    } catch {
+      // 错误提示已由请求层统一弹出
+    }
+  }
+
+  // 删除地址：二次确认后调用接口
+  const deleteAddress = async (row: Api.Member.AddressItem): Promise<void> => {
+    try {
+      await ElMessageBox.confirm(`确定要删除「${row.name}」的收货地址吗？`, '删除地址', {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      })
+    } catch {
+      return
+    }
+
+    try {
+      await fetchDeleteMemberAddress(props.memberId, row.id)
+      ElMessage.success('已删除')
+      loadAddresses()
+    } catch {
+      // 错误提示已由请求层统一弹出
+    }
+  }
 
   const loadAddresses = async (): Promise<void> => {
     if (!props.memberId) return

@@ -283,6 +283,15 @@ declare namespace Api {
       userIp: string
       /** 退款成功时间，未成功为空 */
       successTime?: string
+      /** 审核状态：0 无需审核 / 1 待审核 / 2 已通过 / 3 已驳回 */
+      auditStatus: number
+      auditStatusName: string
+      /** 审核时间 */
+      auditTime?: string | null
+      /** 审核人后台用户 ID */
+      auditBy: string
+      /** 审核意见 / 驳回原因 */
+      auditRemark: string
       createdAt?: string
       updatedAt?: string
     }
@@ -301,6 +310,8 @@ declare namespace Api {
       orderId?: string
       channelCode?: string
       status?: number
+      /** 审核状态：0 无需审核 / 1 待审核 / 2 已通过 / 3 已驳回 */
+      auditStatus?: number
       pageNo?: number
       pageSize?: number
     }
@@ -315,6 +326,14 @@ declare namespace Api {
       refundPrice: number
       reason?: string
       userIp?: string
+      /** 是否需要审核：true 时只生成退款单，审核通过后才真正退钱 */
+      needAudit?: boolean
+    }
+
+    /** 退款审核参数 */
+    interface RefundAuditParams {
+      /** 审核意见；驳回时必填 */
+      remark?: string
     }
 
     /** 业务回调通知任务，支付 / 退款成功时自动登记 */

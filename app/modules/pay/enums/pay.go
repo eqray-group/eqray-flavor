@@ -218,6 +218,48 @@ func (s PayRefundStatusEnum) String() string {
 	}
 }
 
+// PayRefundAuditStatusEnum 是退款审核状态。
+// 与退款状态解耦：yudao 的退款状态机保持原样，审核进度只体现在这一列。
+// 无需审核(0) 表示建单即提交渠道，与改造前的行为一致，历史数据全部按此处理。
+type PayRefundAuditStatusEnum int8
+
+const (
+	// PayRefundAuditNone 无需审核：建单后立即提交渠道
+	PayRefundAuditNone PayRefundAuditStatusEnum = 0
+	// PayRefundAuditPending 待审核：退款单已生成，尚未提交渠道
+	PayRefundAuditPending PayRefundAuditStatusEnum = 1
+	// PayRefundAuditApproved 审核通过：已提交渠道，结果以退款状态为准
+	PayRefundAuditApproved PayRefundAuditStatusEnum = 2
+	// PayRefundAuditRejected 审核驳回：退款单直接关闭，不会动钱
+	PayRefundAuditRejected PayRefundAuditStatusEnum = 3
+)
+
+// String 返回审核状态中文描述。
+func (s PayRefundAuditStatusEnum) String() string {
+	switch s {
+	case PayRefundAuditNone:
+		return "无需审核"
+	case PayRefundAuditPending:
+		return "待审核"
+	case PayRefundAuditApproved:
+		return "审核通过"
+	case PayRefundAuditRejected:
+		return "审核驳回"
+	default:
+		return "未知状态"
+	}
+}
+
+// IsValid 判断审核状态取值是否合法。
+func (s PayRefundAuditStatusEnum) IsValid() bool {
+	switch s {
+	case PayRefundAuditNone, PayRefundAuditPending, PayRefundAuditApproved, PayRefundAuditRejected:
+		return true
+	default:
+		return false
+	}
+}
+
 // IsValid 判断退款单状态取值是否合法。
 func (s PayRefundStatusEnum) IsValid() bool {
 	switch s {

@@ -141,4 +141,11 @@ var (
 	StoreRiderEmployeeManaged = baseErrs.ErrorCode{Code: 1_004_005_013, Msg: "该员工已有骑手档案，请到骑手管理页维护"}
 	// StoreRiderOperationConflict 操作过程中骑手状态或负载发生变化，需要刷新后重试
 	StoreRiderOperationConflict = baseErrs.ErrorCode{Code: 1_004_005_014, Msg: "骑手档案状态已变化，请刷新后重试"}
+
+	// StorePrintTaskNotExists 打印任务不存在或已删除
+	StorePrintTaskNotExists = baseErrs.ErrorCode{Code: 1_004_006_001, Msg: "打印任务不存在"}
+	// StorePrintTaskStatusInvalid 打印任务当前状态不允许该操作
+	StorePrintTaskStatusInvalid = baseErrs.ErrorCode{Code: 1_004_006_002, Msg: "打印任务当前状态【%v】不允许该操作"}
+	// StorePrintTaskAccessDenied 无权操作该门店的打印任务
+	StorePrintTaskAccessDenied = baseErrs.ErrorCode{Code: 1_004_006_003, Msg: "无权操作该门店的打印任务"}
 )

@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"time"
+
 	"github.com/goravel/framework/contracts/http"
 
 	"eqray-flavor/app/modules/base/param"
@@ -9,6 +11,27 @@ import (
 	"eqray-flavor/app/modules/pay/enums"
 	"eqray-flavor/app/modules/pay/service"
 )
+
+// buildPayOrderQuery 把查询串转成服务层筛选条件，列表与导出共用同一套口径。
+func buildPayOrderQuery(ctx http.Context) (service.PayOrderListQuery, error) {
+	appID, err := queryID(ctx, "appId")
+	if err != nil {
+		return service.PayOrderListQuery{}, err
+	}
+
+	q := service.PayOrderListQuery{
+		Keyword:     ctx.Request().Query("keyword"),
+		AppID:       appID,
+		ChannelCode: ctx.Request().Query("channelCode"),
+	}
+	// 状态 0（待支付）是合法值，只有参数缺省才表示不限
+	if raw := ctx.Request().Query("status"); raw != "" {
+		status := enums.PayOrderStatusEnum(int8(ctx.Request().QueryInt("status", 0)))
+		q.Status = &status
+	}
+
+	return q, nil
+}
 
 // PayOrderController 提供支付单的查询、代下单、重新调起与关闭接口。
 type PayOrderController struct {
@@ -28,20 +51,9 @@ func (c *PayOrderController) Index(ctx http.Context) http.Response {
 		return result.Fail(ctx, err)
 	}
 
-	appID, err := queryID(ctx, "appId")
+	q, err := buildPayOrderQuery(ctx)
 	if err != nil {
 		return result.Fail(ctx, err)
-	}
-
-	q := service.PayOrderListQuery{
-		Keyword:     ctx.Request().Query("keyword"),
-		AppID:       appID,
-		ChannelCode: ctx.Request().Query("channelCode"),
-	}
-	// 状态 0（待支付）是合法值，只有参数缺省才表示不限
-	if raw := ctx.Request().Query("status"); raw != "" {
-		status := enums.PayOrderStatusEnum(int8(ctx.Request().QueryInt("status", 0)))
-		q.Status = &status
 	}
 
 	list, total, err := c.service.Page(ctx.Context(), q, page.PageNo, page.PageSize)
@@ -50,6 +62,26 @@ func (c *PayOrderController) Index(ctx http.Context) http.Response {
 	}
 
 	return result.Page(ctx, list, total)
+}
+
+// Export 按当前筛选条件导出支付单 CSV，供财务对账。
+// 入参：与列表一致的筛选条件；返回 CSV 文件流，单次最多导出五千条。
+func (c *PayOrderController) Export(ctx http.Context) http.Response {
+	q, err := buildPayOrderQuery(ctx)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	data, err := c.service.Export(ctx.Context(), q)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	filename := "pay-orders-" + time.Now().Format("20060102150405") + ".csv"
+
+	return ctx.Response().
+		Header("Content-Disposition", `attachment; filename="`+filename+`"`).
+		Data(http.StatusOK, "text/csv; charset=utf-8", data)
 }
 
 // Show 查询支付单详情，附带每次渠道调用的拓展记录。

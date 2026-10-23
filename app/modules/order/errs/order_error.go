@@ -43,6 +43,22 @@ var (
 	OrderPayAmountMissing = baseErrs.ErrorCode{Code: 1_006_001_017, Msg: "订单应付金额为 0，无需支付"}
 	// OrderMemberRequired C 端下单必须携带会员身份
 	OrderMemberRequired = baseErrs.ErrorCode{Code: 1_006_001_018, Msg: "请先登录后再下单"}
+	// OrderPaidCannotAdjust 已支付订单不允许改价，避免与支付单金额不一致
+	OrderPaidCannotAdjust = baseErrs.ErrorCode{Code: 1_006_001_019, Msg: "订单已支付，不能改价"}
+	// OrderAdjustAmountInvalid 改价金额不合法
+	OrderAdjustAmountInvalid = baseErrs.ErrorCode{Code: 1_006_001_020, Msg: "改价金额不能为 0，且改价后应付金额不能小于 0"}
+	// OrderStatusNotAdjustable 当前状态不允许改价
+	OrderStatusNotAdjustable = baseErrs.ErrorCode{Code: 1_006_001_021, Msg: "订单当前状态【%v】不允许改价"}
+	// OrderNotDeliverable 仅外卖订单支持派单
+	OrderNotDeliverable = baseErrs.ErrorCode{Code: 1_006_001_022, Msg: "仅外卖订单支持派单"}
+	// OrderRiderNotExists 骑手不存在或不属于该门店
+	OrderRiderNotExists = baseErrs.ErrorCode{Code: 1_006_001_023, Msg: "骑手不存在或不属于该门店"}
+	// OrderRiderUnavailable 骑手当前不可接单
+	OrderRiderUnavailable = baseErrs.ErrorCode{Code: 1_006_001_024, Msg: "骑手当前不可接单或已达接单上限"}
+	// OrderAlreadyDispatched 订单已派单
+	OrderAlreadyDispatched = baseErrs.ErrorCode{Code: 1_006_001_025, Msg: "该订单已派单，请先取消原派单"}
+	// OrderStatusNotDispatchable 当前状态不允许派单
+	OrderStatusNotDispatchable = baseErrs.ErrorCode{Code: 1_006_001_026, Msg: "订单当前状态【%v】不允许派单"}
 
 	// CartNotExists 购物车不存在
 	CartNotExists = baseErrs.ErrorCode{Code: 1_006_002_001, Msg: "购物车不存在"}

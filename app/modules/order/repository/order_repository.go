@@ -376,6 +376,127 @@ func (r *CaterOrderRepository) RefundAccumulated(ctx context.Context, tx db.Tx, 
 	return res.RowsAffected, nil
 }
 
+// UpdateRemark 更新订单的顾客备注与商家备注，返回影响行数。
+// 入参：订单 ID、顾客备注与商家备注；两者分列存放，店员改动不覆盖顾客原始诉求。
+func (r *CaterOrderRepository) UpdateRemark(ctx context.Context, id types.ID, remark, merchantRemark string) (int64, error) {
+	res, err := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).
+		Where("id", id).
+		WhereNull("deleted_at").
+		Update(map[string]any{
+			"remark":          remark,
+			"merchant_remark": merchantRemark,
+			"updated_at":      types.Now(),
+		})
+	if err != nil {
+		return 0, err
+	}
+
+	return res.RowsAffected, nil
+}
+
+// AdjustPayAmount 对未支付订单改价：应付金额与改价差额同时累加，返回影响行数。
+// 入参：订单 ID 与差额（分，正加价 / 负减免）。
+// 约束：条件里带上 pay_status = 0，已支付订单不会被改动，返回 0 行由调用方报错。
+func (r *CaterOrderRepository) AdjustPayAmount(ctx context.Context, id types.ID, delta int64) (int64, error) {
+	res, err := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).
+		Where("id", id).
+		Where("pay_status", int8(orderEnums.PayStatusUnpaid)).
+		WhereNull("deleted_at").
+		Update(map[string]any{
+			"pay_amount":    frameworkDB.Raw("pay_amount + ?", delta),
+			"adjust_amount": frameworkDB.Raw("adjust_amount + ?", delta),
+			"updated_at":    types.Now(),
+		})
+	if err != nil {
+		return 0, err
+	}
+
+	return res.RowsAffected, nil
+}
+
+// AssignRider 给订单派单：写入骑手与派单时间，返回影响行数。
+// 入参：订单 ID、骑手 ID 与派单时间。
+// 约束：条件里带上 rider_id = 0，重复派单返回 0 行，避免两名骑手同时接到同一单。
+func (r *CaterOrderRepository) AssignRider(ctx context.Context, id, riderID types.ID, dispatchTime time.Time) (int64, error) {
+	res, err := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).
+		Where("id", id).
+		Where("rider_id", 0).
+		WhereNull("deleted_at").
+		Update(map[string]any{
+			"rider_id":      riderID,
+			"dispatch_time": types.DateTime(dispatchTime),
+			"updated_at":    types.Now(),
+		})
+	if err != nil {
+		return 0, err
+	}
+
+	return res.RowsAffected, nil
+}
+
+// ClearRider 清空订单的骑手与派单时间，用于订单完成或取消后释放配送关系。
+// 入参：订单 ID；返回影响行数。
+func (r *CaterOrderRepository) ClearRider(ctx context.Context, id types.ID) (int64, error) {
+	res, err := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).
+		Where("id", id).
+		Where("rider_id > 0").
+		WhereNull("deleted_at").
+		Update(map[string]any{
+			"rider_id":      0,
+			"dispatch_time": nil,
+			"updated_at":    types.Now(),
+		})
+	if err != nil {
+		return 0, err
+	}
+
+	return res.RowsAffected, nil
+}
+
+// ListForExport 按筛选条件取一批订单用于导出，不分页。
+// 入参：筛选条件与最大条数；返回按 ID 倒序的订单列表。
+// 说明：导出是后台运维动作，上限由调用方控制，避免一次拉空整张表。
+func (r *CaterOrderRepository) ListForExport(ctx context.Context, filter OrderListFilter, limit int) ([]model.CaterOrderModel, error) {
+	query := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).WhereNull("deleted_at")
+	if filter.StoreID != nil && *filter.StoreID > 0 {
+		query = query.Where("store_id", *filter.StoreID)
+	}
+	if filter.StoreID == nil || *filter.StoreID <= 0 {
+		if len(filter.StoreIDs) > 0 {
+			query = query.WhereIn("store_id", toAny(filter.StoreIDs))
+		} else if filter.StoreIDs != nil {
+			query = query.Where("id", 0)
+		}
+	}
+	if filter.Status != nil {
+		query = query.Where("status", int16(*filter.Status))
+	}
+	if filter.PayStatus != nil {
+		query = query.Where("pay_status", int8(*filter.PayStatus))
+	}
+	if filter.Type != nil {
+		query = query.Where("type", int8(*filter.Type))
+	}
+	if filter.MemberID != nil && *filter.MemberID > 0 {
+		query = query.Where("member_id", *filter.MemberID)
+	}
+	if filter.Keyword != "" {
+		like := "%" + filter.Keyword + "%"
+		query = query.Where(func(q db.Query) db.Query {
+			return q.WhereLike("no", like).
+				OrWhereLike("pickup_code", like).
+				OrWhereLike("receiver_phone", like)
+		})
+	}
+
+	list := make([]model.CaterOrderModel, 0)
+	if err := query.OrderByDesc("id").Limit(uint64(limit)).Get(&list); err != nil {
+		return nil, err
+	}
+
+	return list, nil
+}
+
 // NewOrderLogModel 组装一条订单状态日志。
 func NewOrderLogModel(orderID types.ID, from, to orderEnums.OrderStatus, operatorType int8, operatorID types.ID, operatorName, reason string) *model.CaterOrderLogModel {
 	return &model.CaterOrderLogModel{

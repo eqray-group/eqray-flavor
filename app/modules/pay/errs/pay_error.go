@@ -71,6 +71,10 @@ var (
 	PayRefundSubmitFail = baseErrs.ErrorCode{Code: 1_008_004_006, Msg: "调用渠道退款失败：%v"}
 	// PayRefundExceedOrderPrice 累计退款金额将超过支付金额；并发退款时由条件更新兜底
 	PayRefundExceedOrderPrice = baseErrs.ErrorCode{Code: 1_008_004_007, Msg: "累计退款金额将超过支付金额，本次退款未生效"}
+	// PayRefundAuditStatusInvalid 退款单当前审核状态不允许该操作
+	PayRefundAuditStatusInvalid = baseErrs.ErrorCode{Code: 1_008_004_008, Msg: "退款单审核状态【%v】不允许该操作"}
+	// PayRefundAuditRemarkRequired 驳回时必须填写原因
+	PayRefundAuditRemarkRequired = baseErrs.ErrorCode{Code: 1_008_004_009, Msg: "驳回退款必须填写原因"}
 
 	// PayNotifyTaskNotExists 回调通知任务不存在
 	PayNotifyTaskNotExists = baseErrs.ErrorCode{Code: 1_008_005_001, Msg: "回调通知任务不存在"}

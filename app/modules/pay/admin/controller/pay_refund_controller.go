@@ -1,14 +1,49 @@
 package controller
 
 import (
+	"time"
+
 	"github.com/goravel/framework/contracts/http"
 
 	"eqray-flavor/app/modules/base/param"
 	"eqray-flavor/app/modules/base/result"
+	support "eqray-flavor/app/modules/base/support"
+	"eqray-flavor/app/modules/base/types"
 	"eqray-flavor/app/modules/pay/admin/request"
 	"eqray-flavor/app/modules/pay/enums"
 	"eqray-flavor/app/modules/pay/service"
 )
+
+// buildPayRefundQuery 把查询串转成服务层筛选条件，列表与导出共用同一套口径。
+func buildPayRefundQuery(ctx http.Context) (service.PayRefundListQuery, error) {
+	appID, err := queryID(ctx, "appId")
+	if err != nil {
+		return service.PayRefundListQuery{}, err
+	}
+	orderID, err := queryID(ctx, "orderId")
+	if err != nil {
+		return service.PayRefundListQuery{}, err
+	}
+
+	q := service.PayRefundListQuery{
+		Keyword:     ctx.Request().Query("keyword"),
+		AppID:       appID,
+		OrderID:     orderID,
+		ChannelCode: ctx.Request().Query("channelCode"),
+	}
+	// 状态 0（退款订单生成）是合法值，只有参数缺省才表示不限
+	if raw := ctx.Request().Query("status"); raw != "" {
+		status := enums.PayRefundStatusEnum(int8(ctx.Request().QueryInt("status", 0)))
+		q.Status = &status
+	}
+	// 审核状态 0（无需审核）也是合法值，只有参数缺省才表示不限
+	if raw := ctx.Request().Query("auditStatus"); raw != "" {
+		auditStatus := enums.PayRefundAuditStatusEnum(int8(ctx.Request().QueryInt("auditStatus", 0)))
+		q.AuditStatus = &auditStatus
+	}
+
+	return q, nil
+}
 
 // PayRefundController 提供退款单的查询与发起退款接口。
 type PayRefundController struct {
@@ -28,25 +63,9 @@ func (c *PayRefundController) Index(ctx http.Context) http.Response {
 		return result.Fail(ctx, err)
 	}
 
-	appID, err := queryID(ctx, "appId")
+	q, err := buildPayRefundQuery(ctx)
 	if err != nil {
 		return result.Fail(ctx, err)
-	}
-	orderID, err := queryID(ctx, "orderId")
-	if err != nil {
-		return result.Fail(ctx, err)
-	}
-
-	q := service.PayRefundListQuery{
-		Keyword:     ctx.Request().Query("keyword"),
-		AppID:       appID,
-		OrderID:     orderID,
-		ChannelCode: ctx.Request().Query("channelCode"),
-	}
-	// 状态 0（退款订单生成）是合法值，只有参数缺省才表示不限
-	if raw := ctx.Request().Query("status"); raw != "" {
-		status := enums.PayRefundStatusEnum(int8(ctx.Request().QueryInt("status", 0)))
-		q.Status = &status
 	}
 
 	list, total, err := c.service.Page(ctx.Context(), q, page.PageNo, page.PageSize)
@@ -55,6 +74,26 @@ func (c *PayRefundController) Index(ctx http.Context) http.Response {
 	}
 
 	return result.Page(ctx, list, total)
+}
+
+// Export 按当前筛选条件导出售后退款单 CSV，含审核状态便于对账溯源。
+// 入参：与列表一致的筛选条件；返回 CSV 文件流。
+func (c *PayRefundController) Export(ctx http.Context) http.Response {
+	q, err := buildPayRefundQuery(ctx)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	data, err := c.service.Export(ctx.Context(), q)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	filename := "pay-refunds-" + time.Now().Format("20060102150405") + ".csv"
+
+	return ctx.Response().
+		Header("Content-Disposition", `attachment; filename="`+filename+`"`).
+		Data(http.StatusOK, "text/csv; charset=utf-8", data)
 }
 
 // Show 查询退款单详情。
@@ -87,10 +126,52 @@ func (c *PayRefundController) Store(ctx http.Context) http.Response {
 		RefundPrice:      req.RefundPrice,
 		Reason:           req.Reason,
 		UserIP:           req.UserIP,
+		NeedAudit:        req.NeedAudit,
 	})
 	if err != nil {
 		return result.Fail(ctx, err)
 	}
 
 	return result.Success(ctx, row)
+}
+
+// Approve 审核通过退款申请：钱包单回冲余额，渠道单提交退款。
+// 入参：路径 id + remark（审核意见，选填）；返回更新后的退款单。
+func (c *PayRefundController) Approve(ctx http.Context) http.Response {
+	var req request.PayRefundAuditRequest
+	if err := param.Bind(ctx, &req); err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	id, err := param.PathID(ctx)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	row, err := c.service.ApproveRefund(ctx.Context(), id, types.ID(support.UserID(ctx.Context())), req.Remark)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	return result.Success(ctx, row)
+}
+
+// Reject 审核驳回退款申请：退款单关闭，不动钱。
+// 入参：路径 id + remark（驳回原因，必填）；返回空数据表示驳回成功。
+func (c *PayRefundController) Reject(ctx http.Context) http.Response {
+	var req request.PayRefundAuditRequest
+	if err := param.Bind(ctx, &req); err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	id, err := param.PathID(ctx)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	if err := c.service.RejectRefund(ctx.Context(), id, types.ID(support.UserID(ctx.Context())), req.Remark); err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	return result.Success(ctx, nil)
 }
