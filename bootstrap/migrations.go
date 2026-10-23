@@ -98,6 +98,8 @@ func Migrations() []schema.Migration {
 		&migrations.M20261023000051SeedOrderPosMenu{},
 		// 空库补默认支付应用与两个 POS 渠道占位（渠道默认关闭，凭证由管理员填）
 		&migrations.M20261023000052SeedDefaultPayApp{},
+		// 门店充值权限点：与「钱包调账」分开授权，收银员只给充值不给调账
+		&migrations.M20261023000053SeedPayWalletRechargeMenu{},
 
 		// ---------- dish ----------
 		&migrations.M20261022000021CreateDishCategoryTable{},

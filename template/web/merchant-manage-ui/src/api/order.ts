@@ -20,6 +20,25 @@ export function fetchCancelOrder(id: string, reason?: string) {
   return http.post<null>(`/api/v1/order/orders/${id}/cancel`, { reason })
 }
 
+// 加菜：把明细并入未支付订单，返回新的整单应付
+export function fetchAppendOrderItems(id: string, items: unknown[]) {
+  return http.postBody<{ id: string; no: string; addedLines: number; payAmount: number }>(
+    `/api/v1/order/pos/orders/${id}/items`,
+    { items }
+  )
+}
+
+// 并台：把源单明细并入目标单，源单取消
+export function fetchMergeOrders(id: string, sourceOrderId: string) {
+  return http.post<{
+    id: string
+    no: string
+    payAmount: number
+    sourceOrderId: string
+    sourceTableId: string
+  }>(`/api/v1/order/pos/orders/${id}/merge`, { sourceOrderId })
+}
+
 // 门店今日经营概览：营收、客单价、退款与各状态单量
 export function fetchPosOverview() {
   return http.get<Api.Order.PosOverview>('/api/v1/order/pos/overview')

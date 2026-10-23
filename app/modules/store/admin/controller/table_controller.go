@@ -150,6 +150,26 @@ func (c *TableController) Clear(ctx http.Context) http.Response {
 	return result.Success(ctx, nil)
 }
 
+// Transfer 换台：把进行中的台位单换到另一张空闲桌台。
+// 入参：路径 id（源台）+ toTableId；返回 null。
+func (c *TableController) Transfer(ctx http.Context) http.Response {
+	id, err := param.PathID(ctx)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	var req request.TableTransferRequest
+	if err := param.Bind(ctx, &req); err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	if err := c.service.Transfer(ctx.Context(), id, req.ToTableID); err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	return result.Success(ctx, nil)
+}
+
 // toTableSaveInput 把请求体转换为服务层入参。
 func toTableSaveInput(req request.TableSaveRequest) service.TableSaveInput {
 	return service.TableSaveInput{

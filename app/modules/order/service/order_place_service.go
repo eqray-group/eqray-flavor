@@ -234,6 +234,9 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*Create
 			Orderer:            in.Items[index].Orderer,
 			Remark:             in.Items[index].Remark,
 		}
+		// 主键必须现在就定下来：下面的加料快照要引用明细 ID，
+		// 等插入时才由 FillCreate 生成的话，加料的 order_item_id 会全是 0
+		item.ID = support.NewID()
 		items = append(items, item)
 
 		for _, addon := range line.Addons {

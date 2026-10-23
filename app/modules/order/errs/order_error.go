@@ -85,4 +85,10 @@ var (
 	OrderPosPayRejected = baseErrs.ErrorCode{Code: 1_006_003_008, Msg: "顾客尚未完成付款，请重试或改用其它方式"}
 	// OrderPayAmountMismatch 支付单金额与订单应付不一致，拒绝入账
 	OrderPayAmountMismatch = baseErrs.ErrorCode{Code: 1_006_003_009, Msg: "支付金额【%v】与订单应付【%v】不一致，已拒绝入账"}
+	// OrderAppendNotAllowed 当前订单状态不支持加菜
+	OrderAppendNotAllowed = baseErrs.ErrorCode{Code: 1_006_003_010, Msg: "订单当前状态【%v】不能加菜"}
+	// OrderMergeNotAllowed 并台条件不满足
+	OrderMergeNotAllowed = baseErrs.ErrorCode{Code: 1_006_003_011, Msg: "只有同一门店、同一时间段的未支付堂食单才能并台"}
+	// OrderAppendCouponLocked 已用券的订单不允许加菜
+	OrderAppendCouponLocked = baseErrs.ErrorCode{Code: 1_006_003_012, Msg: "该单已使用优惠券，加菜会破坏优惠分摊，请取消后重新下单"}
 )

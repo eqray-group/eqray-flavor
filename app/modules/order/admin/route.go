@@ -69,6 +69,10 @@ func Register() {
 		pos("order:pos:create").Post("/pos/estimates", posController.Estimate)
 		pos("order:pos:create").Middleware(operate("订单管理", "POS 代客下单")).
 			Post("/pos/orders", posController.Store)
+		pos("order:pos:create").Middleware(operate("订单管理", "POS 加菜")).
+			Post("/pos/orders/{id}/items", posController.Append)
+		pos("order:pos:create").Middleware(operate("订单管理", "POS 并台")).
+			Post("/pos/orders/{id}/merge", posController.Merge)
 		pos("order:pos:settle").Middleware(operate("订单管理", "POS 现金结账")).
 			Post("/pos/orders/{id}/settle-cash", posController.SettleCash)
 		// 扫码收款：微信返回二维码后靠轮询，支付宝条码同步返回结果

@@ -32,10 +32,17 @@
 
     <aside class="cart">
       <div class="cart-head">
+        <div v-if="appendOrderId" class="append-bar">
+          加菜模式 · {{ appendOrderNo || appendOrderId }}
+          <ElButton link type="danger" size="small" @click="exitAppend">退出</ElButton>
+        </div>
+
         <div class="member-bar">
           <template v-if="member">
             <span class="member-name">{{ member.nickname || member.mobile }}</span>
             <span class="member-point">积分 {{ member.point }}</span>
+            <span class="member-balance">余额 ¥{{ yuan(walletBalance) }}</span>
+            <ElButton link type="primary" size="small" @click="openRecharge">充值</ElButton>
             <ElButton link type="danger" size="small" @click="clearMember">移除</ElButton>
           </template>
           <ElButton v-else link type="primary" size="small" @click="openMember">识别会员（选填）</ElButton>
@@ -157,6 +164,29 @@
       </template>
     </ElDialog>
 
+    <ElDialog v-model="rechargeVisible" title="会员充值" width="380px">
+      <div class="recharge-member">
+        {{ member?.nickname || member?.mobile }} · 当前余额 ¥{{ yuan(walletBalance) }}
+      </div>
+      <ElForm label-width="70px">
+        <ElFormItem label="实收">
+          <ElInputNumber v-model="rechargeYuan" :min="0.01" :precision="2" :step="10" class="w-full" />
+        </ElFormItem>
+        <ElFormItem label="赠送">
+          <ElInputNumber v-model="bonusYuan" :min="0" :precision="2" :step="0" class="w-full" />
+        </ElFormItem>
+        <ElFormItem label="备注">
+          <ElInput v-model="rechargeRemark" placeholder="选填" />
+        </ElFormItem>
+      </ElForm>
+      <div class="recharge-tip">现金充值不经支付渠道，提交后余额立即可用；赠送不能高于实收</div>
+
+      <template #footer>
+        <ElButton :disabled="recharging" @click="rechargeVisible = false">取消</ElButton>
+        <ElButton type="primary" :loading="recharging" @click="submitRecharge">确认充值</ElButton>
+      </template>
+    </ElDialog>
+
     <ElDialog v-model="heldVisible" title="挂起的单" width="440px">
       <ElEmpty v-if="!held.length" description="没有挂起的单" :image-size="56" />
       <div v-for="item in held" :key="item.id" class="held-item">
@@ -228,8 +258,14 @@
 
   import { fetchPosMenu } from '@/api/dish'
   import { fetchMemberPage } from '@/api/member'
-  import { fetchPosCreateOrder, fetchPosEstimate, fetchSettleCash } from '@/api/order'
+  import {
+    fetchAppendOrderItems,
+    fetchPosCreateOrder,
+    fetchPosEstimate,
+    fetchSettleCash
+  } from '@/api/order'
   import { fetchOpenTable, fetchTablePage } from '@/api/store'
+  import { fetchCashRecharge, fetchMemberWallet } from '@/api/wallet'
   import { STORE_KEY } from '@/utils/http'
 
   const route = useRoute()
@@ -288,6 +324,10 @@
   const doneOrder = ref<Api.Order.CreateResult['order'] | null>(null)
   const cashLoading = ref(false)
 
+  // 加菜模式：从桌台页带 orderId 进来，提交时并入原单而不是新建订单
+  const appendOrderId = ref('')
+  const appendOrderNo = ref('')
+
   // 会员识别：选中后菜单按会员价重取，试算与下单都带 memberId
   const member = ref<Api.Member.Item | null>(null)
   const memberVisible = ref(false)
@@ -295,6 +335,14 @@
   const memberList = ref<Api.Member.Item[]>([])
   const memberLoading = ref(false)
   const usePoints = ref(false)
+
+  // 会员钱包余额与充值：充值走现金，不生成支付单
+  const walletBalance = ref(0)
+  const rechargeVisible = ref(false)
+  const recharging = ref(false)
+  const rechargeYuan = ref(100)
+  const bonusYuan = ref(0)
+  const rechargeRemark = ref('')
 
   // 挂单：整单暂存到 localStorage，不落库。收银中途走开、临时换一单都不丢购物车
   const HELD_KEY = 'merchant_pos_held'
@@ -430,6 +478,22 @@
     }
   }
 
+  // 读取会员钱包余额；没有钱包时后端返回 0，不建钱包
+  const loadWallet = async (): Promise<void> => {
+    if (!member.value) {
+      walletBalance.value = 0
+
+      return
+    }
+
+    try {
+      const res = await fetchMemberWallet(member.value.id)
+      walletBalance.value = res.balance ?? 0
+    } catch {
+      walletBalance.value = 0
+    }
+  }
+
   // 选中会员：菜单按会员价重取，购物车清空避免旧价残留
   const selectMember = async (item: Api.Member.Item): Promise<void> => {
     if (!(await confirmResetCart())) return
@@ -438,7 +502,7 @@
     member.value = item
     cart.value = []
     estimate.value = null
-    await loadMenu()
+    await Promise.all([loadMenu(), loadWallet()])
   }
 
   const clearMember = async (): Promise<void> => {
@@ -446,9 +510,52 @@
 
     member.value = null
     usePoints.value = false
+    walletBalance.value = 0
     cart.value = []
     estimate.value = null
     await loadMenu()
+  }
+
+  const openRecharge = (): void => {
+    rechargeYuan.value = 100
+    bonusYuan.value = 0
+    rechargeRemark.value = ''
+    rechargeVisible.value = true
+  }
+
+  // 现金充值：金额在提交前转成分，前端只做基本校验，上限与赠送规则后端也会再拦一次
+  const submitRecharge = async (): Promise<void> => {
+    const current = member.value
+    if (!current) return
+
+    const price = Math.round((rechargeYuan.value || 0) * 100)
+    const bonus = Math.round((bonusYuan.value || 0) * 100)
+    if (price <= 0) {
+      ElMessage.warning('请输入实收金额')
+
+      return
+    }
+    if (bonus > price) {
+      ElMessage.warning('赠送金额不能高于实收金额')
+
+      return
+    }
+
+    recharging.value = true
+    try {
+      const res = await fetchCashRecharge(current.id, {
+        price,
+        bonusPrice: bonus,
+        remark: rechargeRemark.value.trim()
+      })
+      walletBalance.value = res.balance
+      rechargeVisible.value = false
+      ElMessage.success(`充值成功，当前余额 ¥${yuan(res.balance)}`)
+    } catch {
+      // 错误提示由请求层统一弹出
+    } finally {
+      recharging.value = false
+    }
   }
 
   const pick = (spu: Api.Dish.MenuSpu): void => {
@@ -635,6 +742,18 @@
     estimateTimer = setTimeout(() => void recalc(), 300)
   }
 
+  // 购物车转接口明细：试算、下单、加菜三处共用，避免字段漏写
+  const buildItems = () =>
+    cart.value.map((line) => ({
+      skuId: line.skuId,
+      quantity: line.quantity,
+      addons: line.addons.map((addon) => ({
+        addonItemId: addon.addonItemId,
+        quantity: addon.quantity
+      })),
+      remark: line.remark
+    }))
+
   const recalc = async (): Promise<void> => {
     if (!cart.value.length) {
       estimate.value = null
@@ -646,15 +765,7 @@
       estimate.value = await fetchPosEstimate({
         memberId: member.value?.id || '',
         usePoints: usePoints.value && !!member.value,
-        items: cart.value.map((line) => ({
-          skuId: line.skuId,
-          quantity: line.quantity,
-          addons: line.addons.map((addon) => ({
-            addonItemId: addon.addonItemId,
-            quantity: addon.quantity
-          })),
-          remark: line.remark
-        }))
+        items: buildItems()
       })
     } catch {
       estimate.value = null
@@ -668,6 +779,32 @@
 
   const submit = async (): Promise<void> => {
     if (!cart.value.length) return
+
+    // 加菜模式：明细并入原单，不新建订单，也不碰桌台状态
+    if (appendOrderId.value) {
+      submitting.value = true
+      try {
+        const res = await fetchAppendOrderItems(appendOrderId.value, buildItems())
+        doneOrder.value = {
+          id: res.id,
+          no: res.no,
+          status: 0,
+          statusText: '',
+          payAmount: res.payAmount,
+          pickupCode: '',
+          expireTime: ''
+        }
+        doneVisible.value = true
+        ElMessage.success(`已加菜，整单应收 ¥${yuan(res.payAmount)}`)
+      } catch {
+        // 错误提示由请求层统一弹出，购物车保留便于重试
+      } finally {
+        submitting.value = false
+      }
+
+      return
+    }
+
     if (orderType.value === 1 && !tableId.value) {
       ElMessage.warning('堂食请先选择桌台')
 
@@ -683,15 +820,7 @@
         usePoints: usePoints.value && !!member.value,
         requestNo: requestNo.value || (requestNo.value = newRequestNo()),
         remark: remark.value.trim(),
-        items: cart.value.map((line) => ({
-          skuId: line.skuId,
-          quantity: line.quantity,
-          addons: line.addons.map((addon) => ({
-            addonItemId: addon.addonItemId,
-            quantity: addon.quantity
-          })),
-          remark: line.remark
-        }))
+        items: buildItems()
       })
       // 堂食下单成功后开台并绑定台位单：桌台图据此显示「有台位单」。
       // 台位已被占用时开台会失败，属正常情况（重复开台），忽略即可，不影响下单结果。
@@ -739,6 +868,9 @@
     remark.value = ''
     tableId.value = ''
     requestNo.value = ''
+    // 加菜完成后退回新单模式，避免下一次点菜又并到旧单上
+    appendOrderId.value = ''
+    appendOrderNo.value = ''
     // 换下一单：会员与积分抵扣一并清掉，避免把上一位顾客的身份带过去
     if (member.value) {
       member.value = null
@@ -748,12 +880,28 @@
     void loadTables()
   }
 
+  // 退出加菜模式：清空当前购物车与订单上下文，回到新单
+  const exitAppend = (): void => {
+    appendOrderId.value = ''
+    appendOrderNo.value = ''
+    cart.value = []
+    estimate.value = null
+    void loadMenu()
+  }
+
   onMounted(async () => {
     // 从桌台图进来时带上 tableId，直接按堂食预选台位
     const presetTable = route.query.tableId
     if (typeof presetTable === 'string' && presetTable) {
       orderType.value = 1
       tableId.value = presetTable
+    }
+    // 带 orderId 表示加菜：明细会并入这张单
+    const presetOrder = route.query.orderId
+    if (typeof presetOrder === 'string' && presetOrder) {
+      appendOrderId.value = presetOrder
+      appendOrderNo.value = typeof route.query.orderNo === 'string' ? route.query.orderNo : ''
+      orderType.value = 1
     }
 
     await loadMenu()
@@ -850,6 +998,18 @@
     border-bottom: 1px solid #f2f3f5;
   }
 
+  .append-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 8px;
+    margin-bottom: 8px;
+    font-size: 13px;
+    color: #b45309;
+    background: #fdf6ec;
+    border-radius: 6px;
+  }
+
   .member-bar {
     display: flex;
     gap: 8px;
@@ -864,6 +1024,26 @@
 
   .member-point {
     color: #909399;
+  }
+
+  .member-balance {
+    color: #f56c6c;
+  }
+
+  .recharge-member {
+    margin-bottom: 12px;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: center;
+  }
+
+  .recharge-tip {
+    font-size: 12px;
+    color: #909399;
+  }
+
+  .w-full {
+    width: 100%;
   }
 
   .points-row {

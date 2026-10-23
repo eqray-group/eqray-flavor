@@ -356,6 +356,56 @@ func (r *StoreTableRepository) Clear(ctx context.Context, m *model.StoreTableMod
 	return nil
 }
 
+// Transfer 把台位单从一张桌台换到另一张空闲桌台。
+// 入参：源桌台与目标桌台；返回错误表示目标台不空闲或状态已被别人改动。
+// 说明：先占住目标台（条件更新 status=空闲）再释放源台，顺序反了会出现
+// 两张台同时挂同一个台位单的窗口；整个动作在同一事务内，失败自动回滚。
+func (r *StoreTableRepository) Transfer(ctx context.Context, from, to *model.StoreTableModel) error {
+	from.FillUpdate(ctx)
+	to.FillUpdate(ctx)
+
+	return facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
+		occupied, err := tx.Table(storeTableTable).
+			Where("id", to.ID).
+			Where("status", enums.TableStatusIdle).
+			WhereNull("deleted_at").
+			Update(map[string]any{
+				"status":           enums.TableStatusDining,
+				"current_order_id": from.CurrentOrderID,
+				"opened_at":        from.OpenedAt,
+				"updater":          to.Updater,
+				"updated_at":       to.UpdatedAt,
+			})
+		if err != nil {
+			return err
+		}
+		// 目标台在这期间被别人占用：整笔换台作废，源台保持原样
+		if occupied.RowsAffected == 0 {
+			return baseErrs.New(storeErrs.StoreTableNotIdle)
+		}
+
+		released, err := tx.Table(storeTableTable).
+			Where("id", from.ID).
+			Where("status", enums.TableStatusDining).
+			WhereNull("deleted_at").
+			Update(map[string]any{
+				"status":           enums.TableStatusIdle,
+				"current_order_id": 0,
+				"opened_at":        nil,
+				"updater":          from.Updater,
+				"updated_at":       from.UpdatedAt,
+			})
+		if err != nil {
+			return err
+		}
+		if released.RowsAffected == 0 {
+			return baseErrs.New(storeErrs.StoreTableStatusInvalid)
+		}
+
+		return nil
+	})
+}
+
 // storeTableInsertData 把桌台模型转换为 Insert 使用的字段集合。
 func storeTableInsertData(m *model.StoreTableModel) map[string]any {
 	return map[string]any{

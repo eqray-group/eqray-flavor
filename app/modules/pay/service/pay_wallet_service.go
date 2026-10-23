@@ -171,6 +171,113 @@ func (s *PayWalletService) Expense(ctx context.Context, in PayWalletChangeInput)
 	return s.changeBalance(ctx, in, payEnums.WalletBizAdjust, -1, "后台扣款")
 }
 
+// payWalletUserTypeMember 是钱包里的会员类型，与 C 端保持一致。
+const payWalletUserTypeMember int8 = 1
+
+// payWalletCashRechargeMaxPrice 是单笔现金充值上限（5 万元），防止多输一个零。
+const payWalletCashRechargeMaxPrice int64 = 5_000_000
+
+// PayWalletCashRechargeInput 是门店现金充值的入参。
+type PayWalletCashRechargeInput struct {
+	// MemberID 会员 ID
+	MemberID types.ID
+	// Price 实收金额（分）
+	Price int64
+	// BonusPrice 赠送金额（分），可为 0
+	BonusPrice int64
+	// Remark 备注
+	Remark string
+}
+
+// PayWalletCashRechargeResult 是现金充值的结果。
+type PayWalletCashRechargeResult struct {
+	// WalletID 钱包 ID
+	WalletID types.ID `json:"walletId"`
+	// Balance 充值后的余额（分）
+	Balance int64 `json:"balance"`
+	// Price 实收金额（分）
+	Price int64 `json:"price"`
+	// BonusPrice 赠送金额（分）
+	BonusPrice int64 `json:"bonusPrice"`
+}
+
+// WalletByMember 查询会员钱包，没有钱包时返回 nil。
+// 入参：会员 ID；返回钱包或 nil（POS 展示余额用，读操作不创建钱包）。
+func (s *PayWalletService) WalletByMember(ctx context.Context, memberID types.ID) (*model.PayWalletModel, error) {
+	if memberID <= 0 {
+		return nil, baseErrs.WithMsg(baseErrs.BadRequest, "请选择会员")
+	}
+
+	return s.wallets.FindByUser(ctx, memberID, payWalletUserTypeMember)
+}
+
+// CashRecharge 门店现金充值：实收与赠送分别入账并各写一条流水。
+// 入参：会员、实收、赠送与备注；返回充值后的余额。
+// 说明：现金不经过支付渠道，因此不生成支付单；余额入账后立即可用于消费。
+// 赠送单独记一条流水，方便门店核对「收了多少、送了多少」，累计充值按实收 + 赠送计。
+func (s *PayWalletService) CashRecharge(ctx context.Context, in PayWalletCashRechargeInput) (*PayWalletCashRechargeResult, error) {
+	if in.Price <= 0 {
+		return nil, baseErrs.New(payErrs.PayWalletPriceInvalid)
+	}
+	if in.Price > payWalletCashRechargeMaxPrice {
+		return nil, baseErrs.WithMsg(baseErrs.BadRequest, "单笔充值不能超过 5 万元")
+	}
+	if in.BonusPrice < 0 {
+		return nil, baseErrs.WithMsg(baseErrs.BadRequest, "赠送金额不能为负数")
+	}
+	// 赠送高于实收基本等于白送，多半是输错了，直接拦掉
+	if in.BonusPrice > in.Price {
+		return nil, baseErrs.WithMsg(baseErrs.BadRequest, "赠送金额不能高于实收金额")
+	}
+
+	wallet, err := s.EnsureWallet(ctx, in.MemberID, payWalletUserTypeMember)
+	if err != nil {
+		return nil, err
+	}
+
+	remark := strings.TrimSpace(in.Remark)
+	rechargeRemark := "门店现金充值"
+	if remark != "" {
+		rechargeRemark += "：" + remark
+	}
+	bizID := strconv.FormatInt(int64(wallet.ID), 10)
+
+	if err := facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
+		if err := s.applyBalanceInTx(ctx, tx, wallet, in.Price, 0, in.Price,
+			payEnums.WalletBizRecharge, bizID, rechargeRemark); err != nil {
+			return err
+		}
+		if in.BonusPrice > 0 {
+			if err := s.applyBalanceInTx(ctx, tx, wallet, in.BonusPrice, 0, in.BonusPrice,
+				payEnums.WalletBizRecharge, bizID, "门店充值赠送"); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return nil, err
+	}
+
+	// 重新读一次余额：applyBalanceInTx 不回写内存里的 wallet
+	updated, err := s.wallets.FindByID(ctx, wallet.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	balance := int64(0)
+	if updated != nil {
+		balance = updated.Balance
+	}
+
+	return &PayWalletCashRechargeResult{
+		WalletID:   wallet.ID,
+		Balance:    balance,
+		Price:      in.Price,
+		BonusPrice: in.BonusPrice,
+	}, nil
+}
+
 // changeBalance 在事务内调整余额并写流水，扣减时依赖条件更新保证不透支。
 // 入参：变动入参、业务类型、方向（1 收入 / -1 支出）与默认备注；返回业务错误表示金额非法或余额不足。
 // 说明：加款计入累计充值，扣款计入累计支出，保证钱包首页的累计收支口径正确。

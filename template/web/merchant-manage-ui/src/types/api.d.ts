@@ -52,6 +52,12 @@ declare namespace Api {
       seats: number
       status: number
       currentOrderId: string
+      /** 台位单号，没有台位单时为空 */
+      currentOrderNo?: string
+      /** 台位单应收（分） */
+      currentOrderAmount?: number
+      /** 已开台分钟数 */
+      openedMinutes?: number
     }
 
     interface TablePage {

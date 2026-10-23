@@ -131,6 +131,68 @@ func (c *PosController) Report(ctx http.Context) http.Response {
 	return result.Success(ctx, out)
 }
 
+// Append 给未支付的堂食订单加菜：整单重新计价后返回新的应付金额。
+// 入参：路径 id + items；返回加菜后的整单应付。
+func (c *PosController) Append(ctx http.Context) http.Response {
+	storeID := support.StoreID(ctx.Context())
+	if storeID == 0 {
+		return result.Fail(ctx, errs.New(orderErrs.OrderPosStoreRequired))
+	}
+
+	id, err := param.PathID(ctx)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	var req request.PosAppendRequest
+	if err := param.Bind(ctx, &req); err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	out, err := c.service.AppendOrderItems(ctx.Context(), service.AppendOrderItemsInput{
+		OrderID: id,
+		StoreID: storeID,
+		UserID:  types.ID(support.UserID(ctx.Context())),
+		Items:   toPosCreateItems(req.Items),
+	})
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	return result.Success(ctx, out)
+}
+
+// Merge 并台：把源单明细并入目标单，源单随后取消。
+// 入参：路径 id（保留单）+ sourceOrderId；返回合并后的应付与源台（供清台）。
+func (c *PosController) Merge(ctx http.Context) http.Response {
+	storeID := support.StoreID(ctx.Context())
+	if storeID == 0 {
+		return result.Fail(ctx, errs.New(orderErrs.OrderPosStoreRequired))
+	}
+
+	id, err := param.PathID(ctx)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	var req request.PosMergeRequest
+	if err := param.Bind(ctx, &req); err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	out, err := c.service.MergeOrders(ctx.Context(), service.MergeOrdersInput{
+		TargetOrderID: id,
+		SourceOrderID: req.SourceOrderID,
+		StoreID:       storeID,
+		UserID:        types.ID(support.UserID(ctx.Context())),
+	})
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	return result.Success(ctx, out)
+}
+
 // Overview 返回当前门店今日的经营概览，供门店端首页展示。
 // 入参：无（门店取请求头）；返回营收、客单价、退款额与各状态单量。
 func (c *PosController) Overview(ctx http.Context) http.Response {

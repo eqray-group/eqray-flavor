@@ -144,6 +144,28 @@ func (r *TableBatchRequest) Messages(ctx http.Context) map[string]string {
 	}
 }
 
+// TableTransferRequest 是桌台换台的入参。
+type TableTransferRequest struct {
+	// ToTableID 目标桌台 ID，必须是同一门店的空闲桌台
+	ToTableID types.ID `form:"toTableId" json:"toTableId"`
+}
+
+// Rules 返回换台入参的校验规则。
+func (r *TableTransferRequest) Rules(ctx http.Context) map[string]any {
+	return map[string]any{
+		"toTableId": "required|integer|min:1",
+	}
+}
+
+// Messages 覆盖框架默认英文提示。
+func (r *TableTransferRequest) Messages(ctx http.Context) map[string]string {
+	return map[string]string{
+		"toTableId.required": "请选择目标桌台",
+		"toTableId.integer":  "目标桌台 ID 必须是整数",
+		"toTableId.min":      "目标桌台 ID 不合法",
+	}
+}
+
 // TableOpenRequest 是开台入参。
 // 订单模块尚未接入时 currentOrderId 传 0，仅占台；后续可由订单服务回填台位单。
 type TableOpenRequest struct {

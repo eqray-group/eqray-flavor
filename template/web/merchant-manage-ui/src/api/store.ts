@@ -25,6 +25,11 @@ export function fetchClearTable(id: string) {
   return http.post<null>(`/api/v1/store/tables/${id}/clear`)
 }
 
+// 换台：把进行中的台位单换到另一张空闲桌台
+export function fetchTransferTable(id: string, toTableId: string) {
+  return http.post<null>(`/api/v1/store/tables/${id}/transfer`, { toTableId })
+}
+
 // 重打小票：任务重置为待打印
 export function fetchReprintPrintTask(id: string) {
   return http.post<null>(`/api/v1/store/print-tasks/${id}/reprint`)

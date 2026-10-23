@@ -95,6 +95,8 @@ func Register() {
 			Middleware(operate("门店管理", "桌台开台")).Post("/tables/{id}/open", tableController.Open)
 		perm("store:table:operate").Middleware(&storeMiddleware.StoreContext{}).
 			Middleware(operate("门店管理", "桌台清台")).Post("/tables/{id}/clear", tableController.Clear)
+		perm("store:table:operate").Middleware(&storeMiddleware.StoreContext{}).
+			Middleware(operate("门店管理", "桌台换台")).Post("/tables/{id}/transfer", tableController.Transfer)
 
 		// ---------- 骑手档案 ----------
 		// 骑手归属门店员工，新增时未指定账号会自动开通后台账号并返回一次性初始密码。

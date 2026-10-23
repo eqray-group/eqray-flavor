@@ -101,6 +101,46 @@ func (r *PosCreateRequest) Messages(ctx http.Context) map[string]string {
 	}
 }
 
+// PosAppendRequest 是加菜入参：只追加明细，不改订单类型与桌台。
+type PosAppendRequest struct {
+	// Items 新增明细，与下单同构
+	Items []PosLine `form:"items" json:"items"`
+}
+
+// Rules 返回校验规则。
+func (r *PosAppendRequest) Rules(ctx http.Context) map[string]any {
+	return map[string]any{
+		"items": "required",
+	}
+}
+
+// Messages 返回中文提示。
+func (r *PosAppendRequest) Messages(ctx http.Context) map[string]string {
+	return map[string]string{
+		"items.required": "请先选择要加的菜品",
+	}
+}
+
+// PosMergeRequest 是并台入参。
+type PosMergeRequest struct {
+	// SourceOrderID 被并入的订单，合并后取消
+	SourceOrderID types.ID `form:"sourceOrderId" json:"sourceOrderId"`
+}
+
+// Rules 返回校验规则。
+func (r *PosMergeRequest) Rules(ctx http.Context) map[string]any {
+	return map[string]any{
+		"sourceOrderId": "required|integer|min:1",
+	}
+}
+
+// Messages 返回中文提示。
+func (r *PosMergeRequest) Messages(ctx http.Context) map[string]string {
+	return map[string]string{
+		"sourceOrderId.required": "请选择要并入的订单",
+	}
+}
+
 // PosPayRequest 是 POS 扫码收款的入参。
 type PosPayRequest struct {
 	// PayType 收款方式：1 微信扫码 / 2 支付宝条码

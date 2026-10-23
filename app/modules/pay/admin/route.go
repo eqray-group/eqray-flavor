@@ -97,6 +97,10 @@ func Register() {
 
 		// ---------- 会员钱包 ----------
 		// 余额调整走条件更新 + 流水，后台只能调整金额，不能直接改余额字段
+		// 门店充值：静态路径必须排在 /wallets/{id} 之前，且用独立权限点与「调账」区分
+		perm("pay:wallet:recharge").Get("/wallets/member/{memberId}", walletController.MemberWallet)
+		perm("pay:wallet:recharge").Middleware(operate("支付管理", "门店现金充值")).
+			Post("/wallets/member/{memberId}/cash-recharge", walletController.CashRecharge)
 		perm("pay:wallet:list").Get("/wallets", walletController.Index)
 		perm("pay:wallet:list").Get("/wallets/{id}", walletController.Show)
 		perm("pay:wallet:list").Get("/wallets/{id}/transactions", walletController.Transactions)

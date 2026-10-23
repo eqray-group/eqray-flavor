@@ -39,6 +39,50 @@ func NewPayWalletController() *PayWalletController {
 	return &PayWalletController{service: service.NewPayWalletService()}
 }
 
+// MemberWallet 查询会员钱包余额，供门店收银台展示。
+// 入参：路径 memberId；返回钱包，没有钱包时返回余额 0（读操作不创建钱包）。
+func (c *PayWalletController) MemberWallet(ctx http.Context) http.Response {
+	memberID, err := param.RouteID(ctx, "memberId")
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	wallet, err := c.service.WalletByMember(ctx.Context(), memberID)
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+	if wallet == nil {
+		return result.Success(ctx, map[string]any{
+			"walletId": "0",
+			"userId":   memberID.String(),
+			"balance":  0,
+		})
+	}
+
+	return result.Success(ctx, wallet)
+}
+
+// CashRecharge 门店现金充值：收银员收现金后给会员钱包加款。
+// 入参：路径 memberId + price、bonusPrice、remark（查询串）；返回充值后余额。
+func (c *PayWalletController) CashRecharge(ctx http.Context) http.Response {
+	memberID, err := param.RouteID(ctx, "memberId")
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	out, err := c.service.CashRecharge(ctx.Context(), service.PayWalletCashRechargeInput{
+		MemberID:   memberID,
+		Price:      int64(ctx.Request().QueryInt("price", 0)),
+		BonusPrice: int64(ctx.Request().QueryInt("bonusPrice", 0)),
+		Remark:     ctx.Request().Query("remark"),
+	})
+	if err != nil {
+		return result.Fail(ctx, err)
+	}
+
+	return result.Success(ctx, out)
+}
+
 // Index 分页查询钱包，支持按用户与用户类型筛选。
 // 入参：userId、userType、pageNo、pageSize（查询串）；返回钱包列表与总数。
 func (c *PayWalletController) Index(ctx http.Context) http.Response {

@@ -176,6 +176,30 @@ func (r *CaterOrderRepository) FindByID(ctx context.Context, id types.ID) (*mode
 	return r.find(ctx, query)
 }
 
+// FindByIDs 批量查询订单，返回以订单 ID 为键的映射。
+// 入参：订单 ID 列表；返回映射，缺失的 ID 不会出现在结果里。
+// 说明：桌台列表要展示台位单金额，按 id 批量取比逐条查询少打 N 次库。
+func (r *CaterOrderRepository) FindByIDs(ctx context.Context, ids []types.ID) (map[types.ID]*model.CaterOrderModel, error) {
+	orders := make([]model.CaterOrderModel, 0, len(ids))
+	result := make(map[types.ID]*model.CaterOrderModel, len(ids))
+	if len(ids) == 0 {
+		return result, nil
+	}
+
+	if err := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).
+		WhereIn("id", toAny(ids)).
+		WhereNull("deleted_at").
+		Get(&orders); err != nil {
+		return nil, err
+	}
+
+	for i := range orders {
+		result[orders[i].ID] = &orders[i]
+	}
+
+	return result, nil
+}
+
 // FindByNo 按订单号查询订单。
 func (r *CaterOrderRepository) FindByNo(ctx context.Context, no string) (*model.CaterOrderModel, error) {
 	query := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).Where("no", no)
@@ -737,6 +761,61 @@ func (r *CaterOrderRepository) RefundOrders(ctx context.Context, storeID types.I
 	}
 
 	return rows, nil
+}
+
+// UpdateTableBinding 换台后同步订单上的桌台快照。
+// 入参：订单 ID、新桌台 ID 与桌号名称；返回影响行数。
+// 说明：订单里存的是桌台名称快照，换台不同步会让小票与后厨单仍打旧桌号。
+func (r *CaterOrderRepository) UpdateTableBinding(ctx context.Context, orderID, tableID types.ID, tableName string) (int64, error) {
+	res, err := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).
+		Where("id", orderID).
+		WhereNull("deleted_at").
+		Update(map[string]any{
+			"table_id":   tableID,
+			"table_name": tableName,
+			"updated_at": types.Now(),
+		})
+	if err != nil {
+		return 0, err
+	}
+
+	return res.RowsAffected, nil
+}
+
+// ReplaceItems 覆盖订单明细：先删旧明细与加料，再写入重新计价的快照。
+// 入参：事务、订单 ID、新明细与新加料；返回错误表示删除或插入失败。
+// 说明：加菜与并台会改变整单优惠分摊，旧行的 item_discount_amount 已失效，
+// 因此整单明细按重新计价的结果整体重写，而不是在原行上累加。
+func (r *CaterOrderRepository) ReplaceItems(ctx context.Context, tx db.Tx, orderID types.ID, items []*model.CaterOrderItemModel, addons []*model.CaterOrderItemAddonModel) error {
+	if _, err := tx.Table(model.CaterOrderItemAddonTable).Where("order_id", orderID).Delete(); err != nil {
+		return err
+	}
+	if _, err := tx.Table(model.CaterOrderItemTable).Where("order_id", orderID).Delete(); err != nil {
+		return err
+	}
+	if err := r.CreateItems(ctx, tx, items); err != nil {
+		return err
+	}
+
+	return r.CreateItemAddons(ctx, tx, addons)
+}
+
+// UpdateAmounts 更新订单金额字段（加菜 / 并台重新计价后写回）。
+// 入参：事务、订单 ID 与待更新字段；返回影响行数。
+// 约束：只允许改未支付订单，已支付的订单金额由退款流程负责，这里不做覆盖。
+func (r *CaterOrderRepository) UpdateAmounts(ctx context.Context, tx db.Tx, orderID types.ID, fields map[string]any) (int64, error) {
+	fields["updated_at"] = types.Now()
+
+	res, err := tx.Table(model.CaterOrderTable).
+		Where("id", orderID).
+		Where("pay_status", int8(orderEnums.PayStatusUnpaid)).
+		WhereNull("deleted_at").
+		Update(fields)
+	if err != nil {
+		return 0, err
+	}
+
+	return res.RowsAffected, nil
 }
 
 // NewOrderLogModel 组装一条订单状态日志。

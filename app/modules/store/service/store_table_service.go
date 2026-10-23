@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	baseErrs "eqray-flavor/app/modules/base/errs"
 	"eqray-flavor/app/modules/base/support"
 	"eqray-flavor/app/modules/base/types"
+	orderRepository "eqray-flavor/app/modules/order/repository"
 	"eqray-flavor/app/modules/store/enums"
 	storeErrs "eqray-flavor/app/modules/store/errs"
 	"eqray-flavor/app/modules/store/model"
@@ -52,6 +54,12 @@ type TableListRow struct {
 	StoreName  string `json:"storeName"`
 	AreaName   string `json:"areaName"`
 	StatusName string `json:"statusName"`
+	// CurrentOrderNo 台位单号，没有台位单时为空
+	CurrentOrderNo string `json:"currentOrderNo"`
+	// CurrentOrderAmount 台位单应收金额（分）
+	CurrentOrderAmount int64 `json:"currentOrderAmount"`
+	// OpenedMinutes 已开台分钟数，未开台为 0
+	OpenedMinutes int `json:"openedMinutes"`
 }
 
 // StoreTableService 负责桌台的增删改查、批量生成与开台 / 清台。
@@ -59,6 +67,8 @@ type StoreTableService struct {
 	tables *repository.StoreTableRepository
 	areas  *repository.StoreTableAreaRepository
 	stores *StoreService
+	// orders 换台后同步订单上的桌台快照；只依赖订单仓储，不会与订单服务形成循环引用
+	orders *orderRepository.CaterOrderRepository
 }
 
 // NewStoreTableService 构造桌台服务。
@@ -67,6 +77,7 @@ func NewStoreTableService() *StoreTableService {
 		tables: repository.NewStoreTableRepository(),
 		areas:  repository.NewStoreTableAreaRepository(),
 		stores: NewStoreService(),
+		orders: orderRepository.NewCaterOrderRepository(),
 	}
 }
 
@@ -276,6 +287,52 @@ func (s *StoreTableService) Clear(ctx context.Context, id types.ID) error {
 	return s.tables.Clear(ctx, m)
 }
 
+// Transfer 换台：把进行中的台位单从一张桌台换到另一张空闲桌台。
+// 入参：源桌台、目标桌台；返回错误表示源台未开台、目标台不空闲或不属于同一门店。
+// 说明：只迁移台位绑定关系，订单本身不动——订单已经记录了桌台 ID 的，
+// 需要在订单侧同步改；一期只做桌台状态与台位单迁移。
+func (s *StoreTableService) Transfer(ctx context.Context, id, toID types.ID) error {
+	if id == toID {
+		return baseErrs.WithMsg(baseErrs.BadRequest, "目标桌台不能与当前桌台相同")
+	}
+
+	from, err := s.findByID(ctx, id)
+	if err != nil {
+		return err
+	}
+	to, err := s.findByID(ctx, toID)
+	if err != nil {
+		return err
+	}
+	if from.StoreID != to.StoreID {
+		return baseErrs.WithMsg(baseErrs.BadRequest, "目标桌台不属于当前门店")
+	}
+	if _, err := s.stores.ResolveWritableStore(ctx, from.StoreID); err != nil {
+		return err
+	}
+
+	if from.Status != enums.TableStatusDining {
+		return baseErrs.New(storeErrs.StoreTableStatusInvalid)
+	}
+	if to.Status != enums.TableStatusIdle {
+		return baseErrs.New(storeErrs.StoreTableNotIdle)
+	}
+
+	if err := s.tables.Transfer(ctx, from, to); err != nil {
+		return err
+	}
+
+	// 台位上有单时同步订单桌号，否则小票与后厨单还会打旧台。
+	// 这一步失败不回滚换台（桌台状态已变更），报错让店员去订单页核对，避免静默不一致。
+	if from.CurrentOrderID > 0 {
+		if _, err := s.orders.UpdateTableBinding(ctx, from.CurrentOrderID, to.ID, to.Name); err != nil {
+			return baseErrs.WithMsg(baseErrs.InternalServerError, "桌台已换，但订单桌号更新失败，请到订单页核对")
+		}
+	}
+
+	return nil
+}
+
 // findByID 查询桌台，不存在时返回固定错误码。
 func (s *StoreTableService) findByID(ctx context.Context, id types.ID) (*model.StoreTableModel, error) {
 	m, err := s.tables.FindByID(ctx, id)
@@ -371,13 +428,34 @@ func (s *StoreTableService) decorateRows(ctx context.Context, rows []model.Store
 		areaNames[area.ID] = area.Name
 	}
 
+	// 有台位单的桌台顺带把单号与金额带出来，收银台一眼能看到哪桌消费了多少
+	orderIDs := make([]types.ID, 0, len(rows))
 	for _, row := range rows {
-		list = append(list, TableListRow{
+		if row.CurrentOrderID > 0 {
+			orderIDs = append(orderIDs, row.CurrentOrderID)
+		}
+	}
+	orders, err := s.orders.FindByIDs(ctx, orderIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+	for _, row := range rows {
+		item := TableListRow{
 			StoreTableModel: row,
 			StoreName:       storeNames[row.StoreID],
 			AreaName:        areaNames[row.AreaID],
 			StatusName:      row.Status.String(),
-		})
+		}
+		if order, ok := orders[row.CurrentOrderID]; ok && order != nil {
+			item.CurrentOrderNo = order.No
+			item.CurrentOrderAmount = order.PayAmount
+		}
+		if row.OpenedAt != nil && !row.OpenedAt.IsZero() {
+			item.OpenedMinutes = int(now.Sub(row.OpenedAt.Time()).Minutes())
+		}
+		list = append(list, item)
 	}
 
 	return list, nil
