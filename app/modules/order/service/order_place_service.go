@@ -115,7 +115,9 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*Create
 		return nil, errs.New(orderErrs.OrderDeliveryInfoRequired)
 	}
 
-	// 会员单必须有会员身份：身份只从令牌取，请求体不传会员 ID（C 端）
+	// 会员单必须有会员身份：身份只从令牌取，请求体不传会员 ID（C 端）。
+	// C 端控制器把渠道固定为小程序，因此这里等价于「C 端下单必须登录」；
+	// POS / 自助机渠道是散客场景，不受此限制。
 	if in.MemberID == 0 && in.Channel == orderEnums.OrderChannelMiniProgram {
 		return nil, errs.New(orderErrs.OrderMemberRequired)
 	}

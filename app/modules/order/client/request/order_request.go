@@ -57,8 +57,6 @@ type CreateRequest struct {
 	StoreID types.ID `form:"storeId" json:"storeId"`
 	// Type 订单类型：1 堂食 / 2 外卖 / 3 自提
 	Type int8 `form:"type" json:"type"`
-	// Channel 下单渠道：1 小程序 / 3 自助机；由前端场景决定
-	Channel int8 `form:"channel" json:"channel"`
 	// TableID 堂食桌台 ID
 	TableID types.ID `form:"tableId" json:"tableId"`
 	// RequestNo 幂等请求号，客户端生成一次后重试复用
@@ -78,7 +76,6 @@ func (r *CreateRequest) Rules(ctx http.Context) map[string]any {
 	return map[string]any{
 		"storeId":         "required",
 		"type":            "required|integer|min:1|max:3",
-		"channel":         "required|integer|min:1|max:4",
 		"requestNo":       "max:64",
 		"remark":          "max:255",
 		"receiverName":    "max:64",
@@ -92,7 +89,6 @@ func (r *CreateRequest) Messages(ctx http.Context) map[string]string {
 	return map[string]string{
 		"storeId.required": "门店不能为空",
 		"type.required":    "订单类型不能为空",
-		"channel.required": "下单渠道不能为空",
 	}
 }
 

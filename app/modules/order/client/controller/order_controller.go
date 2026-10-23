@@ -45,7 +45,8 @@ func (c *OrderController) Estimate(ctx http.Context) http.Response {
 }
 
 // Create 下单：幂等靠请求号，重复提交返回同一张订单。
-// 入参：门店、类型、渠道、桌台 / 收货信息与明细行；返回订单与是否幂等命中。
+// 入参：门店、类型、桌台 / 收货信息与明细行；返回订单与是否幂等命中。
+// 说明：下单渠道固定为小程序，不接受前端传入——否则可传 POS 渠道绕过「必须登录」的校验。
 func (c *OrderController) Create(ctx http.Context) http.Response {
 	var req request.CreateRequest
 	if err := param.Bind(ctx, &req); err != nil {
@@ -57,7 +58,7 @@ func (c *OrderController) Create(ctx http.Context) http.Response {
 		StoreID:         req.StoreID,
 		MemberID:        memberID,
 		Type:            orderEnums.OrderType(req.Type),
-		Channel:         orderEnums.OrderChannel(req.Channel),
+		Channel:         orderEnums.OrderChannelMiniProgram,
 		TableID:         req.TableID,
 		RequestNo:       req.RequestNo,
 		Remark:          req.Remark,
