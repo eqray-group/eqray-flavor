@@ -20,6 +20,7 @@ func Register() {
 	spuController := controller.NewSpuController()
 	addonController := controller.NewAddonController()
 	storeSkuController := controller.NewStoreSkuController()
+	menuController := controller.NewMenuController()
 
 	facades.Route().Prefix(Prefix).Group(func(r route.Router) {
 		auth := r.Middleware(&baseMiddleware.TokenAuth{})
@@ -81,5 +82,10 @@ func Register() {
 			Middleware(operate("菜品管理", "保存门店菜品配置")).Put("/store-skus/{id}", storeSkuController.Save)
 		perm("dish:store-sku:update").Middleware(&storeMiddleware.StoreContext{}).
 			Middleware(operate("菜品管理", "批量调整门店菜品")).Post("/store-skus/batch", storeSkuController.Batch)
+
+		// ---------- 门店端菜单 ----------
+		// POS 点餐用：按门店上下文返回可售菜品，读权限与门店菜品配置一致
+		perm("dish:store-sku:list").Middleware(&storeMiddleware.StoreContext{}).
+			Get("/pos/menus", menuController.Index)
 	})
 }

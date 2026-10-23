@@ -66,4 +66,23 @@ var (
 	CartItemNotFound = baseErrs.ErrorCode{Code: 1_006_002_002, Msg: "购物车明细不存在"}
 	// CartItemQuantityInvalid 购物车明细数量不合法
 	CartItemQuantityInvalid = baseErrs.ErrorCode{Code: 1_006_002_003, Msg: "购物车数量必须大于 0"}
+
+	// OrderPosStoreRequired POS 与门店绑定，未带门店上下文时不允许下单与收款
+	OrderPosStoreRequired = baseErrs.ErrorCode{Code: 1_006_003_001, Msg: "请先选择门店"}
+	// OrderCashSettleStatusInvalid 当前状态不能现金收款
+	OrderCashSettleStatusInvalid = baseErrs.ErrorCode{Code: 1_006_003_002, Msg: "订单当前状态【%v】不能收款"}
+	// OrderAlreadyPaid 订单已收款，禁止重复结账
+	OrderAlreadyPaid = baseErrs.ErrorCode{Code: 1_006_003_003, Msg: "订单已收款，请勿重复结账"}
+	// OrderPosPayAppNotConfigured 系统内没有启用的支付应用
+	OrderPosPayAppNotConfigured = baseErrs.ErrorCode{Code: 1_006_003_004, Msg: "尚未配置支付应用，请先在支付管理中新增"}
+	// OrderPosPayAppNotUnique 系统内启用了多个支付应用
+	OrderPosPayAppNotUnique = baseErrs.ErrorCode{Code: 1_006_003_005, Msg: "检测到【%v】个启用的支付应用，本系统按单应用运行，请只保留一个"}
+	// OrderPosPayChannelMissing 支付应用下缺少对应渠道
+	OrderPosPayChannelMissing = baseErrs.ErrorCode{Code: 1_006_003_006, Msg: "未配置【%v】支付渠道，请先在支付渠道中添加"}
+	// OrderPosPayAuthCodeRequired 支付宝条码支付必须扫码
+	OrderPosPayAuthCodeRequired = baseErrs.ErrorCode{Code: 1_006_003_007, Msg: "请扫描顾客的支付宝付款码"}
+	// OrderPosPayRejected 顾客未完成付款
+	OrderPosPayRejected = baseErrs.ErrorCode{Code: 1_006_003_008, Msg: "顾客尚未完成付款，请重试或改用其它方式"}
+	// OrderPayAmountMismatch 支付单金额与订单应付不一致，拒绝入账
+	OrderPayAmountMismatch = baseErrs.ErrorCode{Code: 1_006_003_009, Msg: "支付金额【%v】与订单应付【%v】不一致，已拒绝入账"}
 )

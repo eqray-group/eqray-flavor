@@ -22,6 +22,7 @@ import (
 	orderModel "eqray-flavor/app/modules/order/model"
 	orderRepository "eqray-flavor/app/modules/order/repository"
 	payEnums "eqray-flavor/app/modules/pay/enums"
+	payModel "eqray-flavor/app/modules/pay/model"
 	payRepository "eqray-flavor/app/modules/pay/repository"
 	payService "eqray-flavor/app/modules/pay/service"
 	storeService "eqray-flavor/app/modules/store/service"
@@ -675,20 +676,56 @@ func (s *OrderService) HandlePayNotify(ctx context.Context, headers map[string]s
 		return "success", nil
 	}
 
+	if err := s.applyPaid(ctx, order, payOrder, paidLog{
+		OperatorType: int8(orderEnums.OperatorTypeSystem),
+		OperatorName: "支付回调",
+		Reason:       "支付成功 " + payOrder.No,
+	}); err != nil {
+		return "error", err
+	}
+
+	return "success", nil
+}
+
+// paidLog 是「订单置为已支付」时写状态日志的操作人信息。
+type paidLog struct {
+	// OperatorType 操作人类型：1 顾客 / 2 店员 / 3 系统
+	OperatorType int8
+	// OperatorID 操作人 ID，系统操作填 0
+	OperatorID types.ID
+	// OperatorName 操作人名称
+	OperatorName string
+	// Reason 日志原因，如「支付成功 单号」「现金收款」
+	Reason string
+}
+
+// applyPaid 把待支付订单落地为已支付：写支付结果、核销券、结算会员资产、记日志并生成打印任务。
+// 入参：订单、支付单（现金收款为 nil）与日志操作人；返回错误表示事务失败，调用方按未支付处理。
+// 说明：支付回调与 POS 现金结账共用这一段，保证两条收款路径的副作用完全一致；
+// 打印任务在事务提交后再生成，避免门店没配打印设备时把已成功的收款整体回滚。
+func (s *OrderService) applyPaid(ctx context.Context, order *orderModel.CaterOrderModel, payOrder *payModel.PayOrderModel, log paidLog) error {
 	// 流转：堂食支付即制作（100→300），外卖 / 自提进入待接单（100→200）
 	target := orderEnums.OrderStatusPendingAccept
 	if order.Type == orderEnums.OrderTypeDineIn {
 		target = orderEnums.OrderStatusMaking
 	}
 
-	txErr := facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
-		moved, err := s.orders.Transit(ctx, tx, order.ID, order.Status, target, map[string]any{
-			"pay_status":   int8(orderEnums.PayStatusPaid),
-			"pay_time":     types.Now(),
-			"pay_order_id": payOrder.ID,
-		})
-		if err != nil || !moved {
+	extra := map[string]any{
+		"pay_status": int8(orderEnums.PayStatusPaid),
+		"pay_time":   types.Now(),
+	}
+	// 现金收款没有支付单，pay_order_id 保持 0，对账时据此区分现金与线上渠道
+	if payOrder != nil {
+		extra["pay_order_id"] = payOrder.ID
+	}
+
+	if err := facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
+		moved, err := s.orders.Transit(ctx, tx, order.ID, order.Status, target, extra)
+		if err != nil {
 			return err
+		}
+		if !moved {
+			return errs.New(orderErrs.OrderStatusInvalidTransition, order.Status.String(), target.String())
 		}
 
 		// 核销优惠券：锁定 → 已使用
@@ -705,18 +742,17 @@ func (s *OrderService) HandlePayNotify(ctx context.Context, headers map[string]s
 
 		return s.orders.CreateLog(ctx, tx, orderRepository.NewOrderLogModel(
 			order.ID, order.Status, target,
-			int8(orderEnums.OperatorTypeSystem), 0, "支付回调", "支付成功 "+payOrder.No,
+			log.OperatorType, log.OperatorID, log.OperatorName, log.Reason,
 		))
-	})
-	if txErr != nil {
-		return "error", txErr
+	}); err != nil {
+		return err
 	}
 
-	// 支付成功后生成门店打印任务（结账单 + 厨打单）。
-	// 打印是旁路动作：门店没配设备、模板出错都不影响支付结果，后台可在打印任务页重打。
+	// 收款成功后生成门店打印任务（结账单 + 厨打单）。
+	// 打印是旁路动作：门店没配设备、模板出错都不影响收款结果，后台可在打印任务页重打。
 	s.createPrintTasks(ctx, order)
 
-	return "success", nil
+	return nil
 }
 
 // createPrintTasks 生成订单的打印任务快照。

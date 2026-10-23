@@ -94,6 +94,10 @@ func Migrations() []schema.Migration {
 		// 打印任务：设备与模板之前只配不用，这里补上任务表与后台重打入口
 		&migrations.M20261023000049CreateStorePrintTaskTable{},
 		&migrations.M20261023000050SeedStorePrintTaskMenu{},
+		// POS 代客下单与现金结账的权限点（门店端走静态路由，只借权限点）
+		&migrations.M20261023000051SeedOrderPosMenu{},
+		// 空库补默认支付应用与两个 POS 渠道占位（渠道默认关闭，凭证由管理员填）
+		&migrations.M20261023000052SeedDefaultPayApp{},
 
 		// ---------- dish ----------
 		&migrations.M20261022000021CreateDishCategoryTable{},

@@ -497,6 +497,248 @@ func (r *CaterOrderRepository) ListForExport(ctx context.Context, filter OrderLi
 	return list, nil
 }
 
+// StoreDailyStats 是门店在指定区间内的经营汇总，供门店端首页展示。
+type StoreDailyStats struct {
+	// PaidOrders 已支付订单数
+	PaidOrders int64
+	// Revenue 已收金额（分）
+	Revenue int64
+	// RefundAmount 已退金额（分）
+	RefundAmount int64
+	// StatusCounts 各状态的订单数，键为状态值
+	StatusCounts map[int16]int64
+}
+
+// StoreDailyStats 统计门店在 [from, to) 区间内的已收金额与各状态订单数。
+// 入参：门店、区间起止；返回汇总，金额为分。
+// 说明：营收口径只认 pay_status = 已支付，退款金额按 refund_amount 累加；
+// 已整单退款的订单货币状态会变成已退款，自然被排除在营收之外，不会重复计算。
+func (r *CaterOrderRepository) StoreDailyStats(ctx context.Context, storeID types.ID, from, to time.Time) (*StoreDailyStats, error) {
+	stats := &StoreDailyStats{StatusCounts: make(map[int16]int64, 8)}
+
+	rangeWhere := func(query db.Query) db.Query {
+		return query.Where("store_id", storeID).
+			WhereBetween("created_at", types.DateTime(from), types.DateTime(to)).
+			WhereNull("deleted_at")
+	}
+
+	// 待处理状态：待支付 / 待接单 / 制作中 / 待取餐
+	pendingStatuses := []any{
+		int16(orderEnums.OrderStatusPendingPay),
+		int16(orderEnums.OrderStatusPendingAccept),
+		int16(orderEnums.OrderStatusMaking),
+		int16(orderEnums.OrderStatusWaitingPickup),
+	}
+
+	paid := struct {
+		PaidOrders int64 `db:"paid_orders"`
+		Revenue    int64 `db:"revenue"`
+		Refund     int64 `db:"refund_amount"`
+	}{}
+	if err := rangeWhere(facades.DB().WithContext(ctx).Table(model.CaterOrderTable)).
+		Select("COUNT(*) AS paid_orders, COALESCE(SUM(pay_amount), 0) AS revenue, COALESCE(SUM(refund_amount), 0) AS refund_amount").
+		Where("pay_status", int8(orderEnums.PayStatusPaid)).
+		First(&paid); err != nil {
+		return nil, err
+	}
+	stats.PaidOrders = paid.PaidOrders
+	stats.Revenue = paid.Revenue
+	stats.RefundAmount = paid.Refund
+
+	rows := make([]struct {
+		Status int16 `db:"status"`
+		Count  int64 `db:"cnt"`
+	}, 0)
+	if err := rangeWhere(facades.DB().WithContext(ctx).Table(model.CaterOrderTable)).
+		Select("status, COUNT(*) AS cnt").
+		WhereIn("status", pendingStatuses).
+		GroupBy("status").
+		Get(&rows); err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		stats.StatusCounts[row.Status] = row.Count
+	}
+
+	return stats, nil
+}
+
+// DailyTrendRow 是按日聚合的营收行。
+type DailyTrendRow struct {
+	// Day 日期，格式 yyyy-MM-dd
+	Day string `db:"day"`
+	// Orders 当日已支付订单数
+	Orders int64 `db:"orders"`
+	// Revenue 当日营收（分）
+	Revenue int64 `db:"revenue"`
+}
+
+// DishSalesRow 是菜品销量聚合行，按「菜品 + 规格」归并。
+type DishSalesRow struct {
+	SpuName  string `db:"spu_name"`
+	SkuName  string `db:"sku_name"`
+	Quantity int64  `db:"quantity"`
+	Amount   int64  `db:"amount"`
+}
+
+// PaymentMix 是收款方式构成：现金与线上渠道各占多少。
+type PaymentMix struct {
+	CashAmount   int64
+	CashOrders   int64
+	OnlineAmount int64
+	OnlineOrders int64
+}
+
+// DailyTrend 按天统计门店营收与单量。
+// 入参：门店、区间起止；返回按日期升序的行，没有订单的日期不会出现在结果里，由调用方补齐。
+func (r *CaterOrderRepository) DailyTrend(ctx context.Context, storeID types.ID, from, to time.Time) ([]DailyTrendRow, error) {
+	rows := make([]DailyTrendRow, 0)
+	// 用 DATE_FORMAT 而不是 DATE()：DATE 在 parseTime 驱动下会扫成 time.Time，写进 string 会失败
+	err := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).
+		Select("DATE_FORMAT(created_at, '%Y-%m-%d') AS day, COUNT(*) AS orders, COALESCE(SUM(pay_amount), 0) AS revenue").
+		Where("store_id", storeID).
+		Where("pay_status", int8(orderEnums.PayStatusPaid)).
+		WhereBetween("created_at", types.DateTime(from), types.DateTime(to)).
+		WhereNull("deleted_at").
+		GroupBy("DATE_FORMAT(created_at, '%Y-%m-%d')").
+		OrderBy("day").
+		Get(&rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return rows, nil
+}
+
+// DishSales 统计门店菜品销量排行。
+// 入参：门店、区间、取前 N 名；返回按销量降序的行。
+// 说明：只统计已支付订单的正常明细，已退明细不计销量，避免退货把排行刷高。
+func (r *CaterOrderRepository) DishSales(ctx context.Context, storeID types.ID, from, to time.Time, limit int) ([]DishSalesRow, error) {
+	rows := make([]DishSalesRow, 0)
+	// 主表不加别名，避免构造器把 "表 AS 别名" 整体加引号；join 片段直接写原始 SQL
+	err := facades.DB().WithContext(ctx).Table(model.CaterOrderItemTable).
+		Join("cater_order AS o ON o.id = cater_order_item.order_id").
+		Select("cater_order_item.spu_name AS spu_name, cater_order_item.sku_name AS sku_name, " +
+			"SUM(cater_order_item.quantity) AS quantity, COALESCE(SUM(cater_order_item.subtotal), 0) AS amount").
+		Where("o.store_id", storeID).
+		Where("o.pay_status", int8(orderEnums.PayStatusPaid)).
+		Where("cater_order_item.status", int8(1)).
+		WhereBetween("o.created_at", types.DateTime(from), types.DateTime(to)).
+		WhereNull("o.deleted_at").
+		WhereNull("cater_order_item.deleted_at").
+		GroupBy("cater_order_item.spu_name, cater_order_item.sku_name").
+		OrderByDesc("quantity").
+		Limit(uint64(limit)).
+		Get(&rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return rows, nil
+}
+
+// PaymentMix 统计门店现金与线上渠道的收款构成。
+// 入参：门店、区间；返回两种方式的金额与单量。
+// 说明：现金收款不生成支付单，pay_order_id 为 0，据此与线上渠道区分。
+func (r *CaterOrderRepository) PaymentMix(ctx context.Context, storeID types.ID, from, to time.Time) (*PaymentMix, error) {
+	mix := &PaymentMix{}
+
+	sum := func(cashOnly bool) (int64, int64, error) {
+		row := struct {
+			Orders int64 `db:"orders"`
+			Amount int64 `db:"amount"`
+		}{}
+		query := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).
+			Select("COUNT(*) AS orders, COALESCE(SUM(pay_amount), 0) AS amount").
+			Where("store_id", storeID).
+			Where("pay_status", int8(orderEnums.PayStatusPaid)).
+			WhereBetween("created_at", types.DateTime(from), types.DateTime(to)).
+			WhereNull("deleted_at")
+		if cashOnly {
+			query = query.Where("pay_order_id", 0)
+		} else {
+			query = query.Where("pay_order_id > 0")
+		}
+
+		if err := query.First(&row); err != nil {
+			return 0, 0, err
+		}
+
+		return row.Orders, row.Amount, nil
+	}
+
+	var err error
+	if mix.CashOrders, mix.CashAmount, err = sum(true); err != nil {
+		return nil, err
+	}
+	if mix.OnlineOrders, mix.OnlineAmount, err = sum(false); err != nil {
+		return nil, err
+	}
+
+	return mix, nil
+}
+
+// HourlyRow 是按小时聚合的营收行。
+type HourlyRow struct {
+	// Hour 小时，两位数字，如 08、23
+	Hour string `db:"h"`
+	// Orders 该小时已支付订单数
+	Orders int64 `db:"orders"`
+	// Revenue 该小时营收（分）
+	Revenue int64 `db:"revenue"`
+}
+
+// RefundRow 是有退款的订单行，供门店核对退给了谁、退了多少。
+type RefundRow struct {
+	No           string         `db:"no"`
+	PayAmount    int64          `db:"pay_amount"`
+	RefundAmount int64          `db:"refund_amount"`
+	Status       int16          `db:"status"`
+	UpdatedAt    types.DateTime `db:"updated_at"`
+}
+
+// HourlyStats 按小时统计门店营收，用于看营业高峰时段。
+// 入参：门店、区间；返回按小时升序的行，没有订单的小时不会出现。
+func (r *CaterOrderRepository) HourlyStats(ctx context.Context, storeID types.ID, from, to time.Time) ([]HourlyRow, error) {
+	rows := make([]HourlyRow, 0)
+	err := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).
+		Select("DATE_FORMAT(created_at, '%H') AS h, COUNT(*) AS orders, COALESCE(SUM(pay_amount), 0) AS revenue").
+		Where("store_id", storeID).
+		Where("pay_status", int8(orderEnums.PayStatusPaid)).
+		WhereBetween("created_at", types.DateTime(from), types.DateTime(to)).
+		WhereNull("deleted_at").
+		GroupBy("DATE_FORMAT(created_at, '%H')").
+		OrderBy("h").
+		Get(&rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return rows, nil
+}
+
+// RefundOrders 列出区间内有退款的订单。
+// 入参：门店、区间、返回条数上限；返回按下单时间倒序的行。
+// 说明：按订单维度统计而不是退款单维度——现金退款不生成退款单，只查退款单会漏；
+// 订单表没有独立的退款时间，展示时用 updated_at 作为「最后更新时间」。
+func (r *CaterOrderRepository) RefundOrders(ctx context.Context, storeID types.ID, from, to time.Time, limit int) ([]RefundRow, error) {
+	rows := make([]RefundRow, 0)
+	err := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).
+		Select("no, pay_amount, refund_amount, status, updated_at").
+		Where("store_id", storeID).
+		Where("refund_amount > 0").
+		WhereBetween("created_at", types.DateTime(from), types.DateTime(to)).
+		WhereNull("deleted_at").
+		OrderByDesc("updated_at").
+		Limit(uint64(limit)).
+		Get(&rows)
+	if err != nil {
+		return nil, err
+	}
+
+	return rows, nil
+}
+
 // NewOrderLogModel 组装一条订单状态日志。
 func NewOrderLogModel(orderID types.ID, from, to orderEnums.OrderStatus, operatorType int8, operatorID types.ID, operatorName, reason string) *model.CaterOrderLogModel {
 	return &model.CaterOrderLogModel{

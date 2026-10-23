@@ -7,6 +7,7 @@ import (
 	"eqray-flavor/app/facades"
 	baseMiddleware "eqray-flavor/app/modules/base/middleware"
 	"eqray-flavor/app/modules/order/admin/controller"
+	storeMiddleware "eqray-flavor/app/modules/store/middleware"
 )
 
 // Prefix 是订单后台接口前缀。
@@ -15,6 +16,7 @@ const Prefix = "/api/v1/order"
 // Register 注册订单后台接口，由 order.Register() 统一调用。
 func Register() {
 	orderController := controller.NewOrderController()
+	posController := controller.NewPosController()
 
 	facades.Route().Prefix(Prefix).Group(func(r route.Router) {
 		auth := r.Middleware(&baseMiddleware.TokenAuth{})
@@ -26,6 +28,13 @@ func Register() {
 		// 写操作留痕，中间件注册在 Permission 之内
 		operate := func(typ, sub string) *baseMiddleware.OperateLog {
 			return &baseMiddleware.OperateLog{Type: typ, SubType: sub}
+		}
+
+		// POS 接口锁死当前门店：StoreContext 校验 X-Store-Id 的存在性与可见范围，
+		// 未带门店标识时服务层会直接拒绝，避免收到其它门店的订单
+		pos := func(code string) route.Router {
+			return auth.Middleware(&storeMiddleware.StoreContext{}).
+				Middleware(&baseMiddleware.Permission{Code: code})
 		}
 
 		// ---------- 订单管理 ----------
@@ -51,5 +60,20 @@ func Register() {
 			Post("/orders/{id}/rider", orderController.AssignRider)
 		perm("order:order:dispatch").Middleware(operate("订单管理", "取消派单")).
 			Delete("/orders/{id}/rider", orderController.CancelDispatch)
+
+		// ---------- POS 收银 ----------
+		// 经营概览与报表只读，跟订单查询同权限
+		pos("order:order:list").Get("/pos/overview", posController.Overview)
+		pos("order:order:list").Get("/pos/reports", posController.Report)
+		// 试算与下单共用「代客下单」权限；现金结账单独授权，避免收银员越权收款
+		pos("order:pos:create").Post("/pos/estimates", posController.Estimate)
+		pos("order:pos:create").Middleware(operate("订单管理", "POS 代客下单")).
+			Post("/pos/orders", posController.Store)
+		pos("order:pos:settle").Middleware(operate("订单管理", "POS 现金结账")).
+			Post("/pos/orders/{id}/settle-cash", posController.SettleCash)
+		// 扫码收款：微信返回二维码后靠轮询，支付宝条码同步返回结果
+		pos("order:pos:settle").Middleware(operate("订单管理", "POS 扫码收款")).
+			Post("/pos/orders/{id}/pay", posController.Pay)
+		pos("order:pos:settle").Get("/pos/orders/{id}/pay-status", posController.PayStatus)
 	})
 }
