@@ -129,5 +129,14 @@ func Migrations() []schema.Migration {
 		&migrations.M20261023000013AddPayCompositeIndexes{},
 		&migrations.M20261023000014SeedPayDicts{},
 		&migrations.M20261023000015WidenPayOrderTextColumns{},
+
+		// 订单模块：交易域核心表、字典与菜单
+		&migrations.M20261023000020CreateCaterOrderTable{},
+		&migrations.M20261023000021CreateCaterOrderItemTable{},
+		&migrations.M20261023000022CreateCaterOrderItemAddonTable{},
+		&migrations.M20261023000023CreateCaterOrderLogTable{},
+		&migrations.M20261023000024CreateCaterCartTable{},
+		&migrations.M20261023000025SeedOrderDicts{},
+		&migrations.M20261023000026SeedOrderMenu{},
 	}
 }
