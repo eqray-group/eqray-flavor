@@ -6,6 +6,7 @@ require (
 	github.com/alibabacloud-go/darabonba-openapi v0.1.18
 	github.com/alibabacloud-go/dysmsapi-20170525/v2 v2.0.18
 	github.com/alibabacloud-go/tea v1.1.17
+	github.com/go-pay/gopay v1.5.123
 	github.com/go-sql-driver/mysql v1.9.3
 	github.com/goravel/framework v1.18.0
 	github.com/goravel/gin v1.18.0
@@ -14,7 +15,6 @@ require (
 	github.com/goravel/redis v1.18.0
 	github.com/goravel/s3 v1.18.0
 	github.com/mojocn/base64Captcha v1.3.8
-	github.com/stretchr/testify v1.11.1
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.0.315
 	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/sms v1.0.315
 	golang.org/x/crypto v0.53.0
@@ -83,6 +83,12 @@ require (
 	github.com/gin-gonic/gin v1.12.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
+	github.com/go-pay/crypto v0.0.3 // indirect
+	github.com/go-pay/errgroup v0.0.3 // indirect
+	github.com/go-pay/smap v0.0.2 // indirect
+	github.com/go-pay/util v0.0.4 // indirect
+	github.com/go-pay/xlog v0.0.3 // indirect
+	github.com/go-pay/xtime v0.0.2 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.30.1 // indirect
@@ -134,6 +140,7 @@ require (
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/spf13/viper v1.21.0 // indirect
+	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/tidwall/gjson v1.18.0 // indirect
 	github.com/tidwall/match v1.1.1 // indirect
