@@ -21,6 +21,8 @@ const (
 	MemberPointBizAdjust int8 = 10
 	// MemberPointBizSign 签到获得的积分
 	MemberPointBizSign int8 = 20
+	// MemberPointBizConsume 消费抵扣扣减的积分（退款返还复用同一类型，靠 bizID 关联同一笔订单）
+	MemberPointBizConsume int8 = 30
 )
 
 // MemberSaveInput 是新增 / 编辑会员的入参，由 Controller 从请求体转换而来。
@@ -297,6 +299,211 @@ func (s *MemberService) AdjustLevel(ctx context.Context, id types.ID, levelID ty
 			Description: strings.TrimSpace(description),
 		})
 	})
+}
+
+// ConsumePoint 原子扣减会员积分并写流水：余额变更与流水写入在同一事务内完成。
+// 入参：会员 ID、扣减积分数（正数）、业务标题与描述、关联业务 ID；返回错误表示积分不足或会员不存在。
+// 与 AdjustPoint 的区别：这里用带「余额 >= 扣减额」的条件更新，并发下不会扣成负数（docs 07 §2）。
+func (s *MemberService) ConsumePoint(ctx context.Context, id types.ID, point int, title, description string, bizID types.ID) error {
+	return facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
+		return s.ConsumePointTx(ctx, tx, id, point, title, description, bizID)
+	})
+}
+
+// ConsumePointTx 在调用方事务内扣减会员积分并写流水。
+// 入参与 ConsumePoint 相同，外加事务句柄；返回错误表示积分不足或会员不存在。
+// 订单结算等需要与业务单据同生共死的场景必须用这个版本，避免业务回滚而积分已扣。
+func (s *MemberService) ConsumePointTx(ctx context.Context, tx db.Tx, id types.ID, point int, title, description string, bizID types.ID) error {
+	if point <= 0 {
+		return baseErrs.WithMsg(baseErrs.BadRequest, "扣减积分数量必须大于 0")
+	}
+
+	m, err := s.Detail(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "消费抵扣"
+	}
+
+	total, ok, deductErr := s.members.DeductPoint(ctx, tx, m.ID, point, "system")
+	if deductErr != nil {
+		return deductErr
+	}
+	if !ok {
+		return baseErrs.New(memberErrs.MemberPointNotEnough, m.Point)
+	}
+
+	return s.points.Create(ctx, tx, &model.MemberPointRecordModel{
+		UserID:      m.ID,
+		BizType:     MemberPointBizConsume,
+		BizID:       bizID,
+		Title:       title,
+		Description: strings.TrimSpace(description),
+		Point:       -point,
+		TotalPoint:  total,
+	})
+}
+
+// RestorePoint 原子返还会员积分并写流水：整单退款返还积分等场景使用。
+// 入参：会员 ID、返还积分数（正数）、业务标题与描述、关联业务 ID；返回错误表示会员不存在。
+func (s *MemberService) RestorePoint(ctx context.Context, id types.ID, point int, title, description string, bizID types.ID) error {
+	return facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
+		return s.RestorePointTx(ctx, tx, id, point, title, description, bizID)
+	})
+}
+
+// RestorePointTx 在调用方事务内返还会员积分并写流水。
+// 入参与 RestorePoint 相同，外加事务句柄；返回错误表示会员不存在。
+func (s *MemberService) RestorePointTx(ctx context.Context, tx db.Tx, id types.ID, point int, title, description string, bizID types.ID) error {
+	if point <= 0 {
+		return nil
+	}
+
+	m, err := s.Detail(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "退款返还"
+	}
+
+	total, ok, addErr := s.members.AddPoint(ctx, tx, m.ID, point, "system")
+	if addErr != nil {
+		return addErr
+	}
+	if !ok {
+		return baseErrs.New(memberErrs.MemberNotExists)
+	}
+
+	return s.points.Create(ctx, tx, &model.MemberPointRecordModel{
+		UserID:      m.ID,
+		BizType:     MemberPointBizConsume,
+		BizID:       bizID,
+		Title:       title,
+		Description: strings.TrimSpace(description),
+		Point:       point,
+		TotalPoint:  total,
+	})
+}
+
+// AddExperience 累计会员成长值并在达标时自动升级，等级只升不降。
+// 入参：会员 ID、累加成长值、业务标题与描述；返回错误表示会员不存在。
+// 等级判定取「启用等级中经验值门槛不超过当前成长值的最高一档」。
+func (s *MemberService) AddExperience(ctx context.Context, id types.ID, experience int, title, description string) error {
+	return facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
+		return s.AddExperienceTx(ctx, tx, id, experience, title, description)
+	})
+}
+
+// AddExperienceTx 在调用方事务内累计会员成长值并在达标时自动升级。
+// 入参与 AddExperience 相同，外加事务句柄；返回错误表示会员不存在。
+func (s *MemberService) AddExperienceTx(ctx context.Context, tx db.Tx, id types.ID, experience int, title, description string) error {
+	if experience <= 0 {
+		return nil
+	}
+
+	m, err := s.Detail(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	title = strings.TrimSpace(title)
+	if title == "" {
+		title = "消费成长"
+	}
+
+	total, ok, addErr := s.members.AddExperience(ctx, tx, m.ID, experience, "system")
+	if addErr != nil {
+		return addErr
+	}
+	if !ok {
+		return baseErrs.New(memberErrs.MemberNotExists)
+	}
+
+	// 重算等级：只升不降，达标才写等级变更记录
+	targetLevel, levelErr := s.resolveLevelByExperience(ctx, total)
+	if levelErr != nil {
+		return levelErr
+	}
+	if targetLevel == nil || targetLevel.ID == m.LevelID {
+		return nil
+	}
+
+	// 更新等级：复用已有 model，只改等级与成长值两列
+	m.LevelID = targetLevel.ID
+	m.Experience = total
+	if updateErr := s.members.UpdateLevel(ctx, tx, m); updateErr != nil {
+		return updateErr
+	}
+
+	return s.members.CreateLevelRecord(ctx, tx, &model.MemberLevelRecordModel{
+		UserID:      m.ID,
+		LevelID:     targetLevel.ID,
+		Experience:  total,
+		Title:       title,
+		Description: strings.TrimSpace(description),
+	})
+}
+
+// DeductExperience 回退会员成长值：整单退款扣回已赠送的成长值时使用。
+// 入参：会员 ID、回退成长值（正数）；返回错误表示会员不存在。
+// 说明：等级只升不降，因此这里只回退成长值，不做降级处理；
+// 成长值回退后若低于当前等级门槛，等级保持不变（等级不会因退款而降级）。
+func (s *MemberService) DeductExperience(ctx context.Context, id types.ID, experience int) error {
+	return facades.DB().WithContext(ctx).Transaction(func(tx db.Tx) error {
+		return s.DeductExperienceTx(ctx, tx, id, experience)
+	})
+}
+
+// DeductExperienceTx 在调用方事务内回退会员成长值。
+// 入参与 DeductExperience 相同，外加事务句柄；返回错误表示会员不存在。
+// 订单退款等需要与业务单据同生共死的场景必须用这个版本。
+func (s *MemberService) DeductExperienceTx(ctx context.Context, tx db.Tx, id types.ID, experience int) error {
+	if experience <= 0 {
+		return nil
+	}
+
+	m, err := s.Detail(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	_, ok, deductErr := s.members.DeductExperience(ctx, tx, m.ID, experience, "system")
+	if deductErr != nil {
+		return deductErr
+	}
+	if !ok {
+		return baseErrs.New(memberErrs.MemberNotExists)
+	}
+
+	return nil
+}
+
+// resolveLevelByExperience 按成长值选出应处的等级：取经验门槛不超过当前成长值的最高一档。
+// 入参：当前成长值；返回目标等级，未找到可用等级时返回 (nil, nil)。
+func (s *MemberService) resolveLevelByExperience(ctx context.Context, experience int) (*model.MemberLevelModel, error) {
+	levels, err := s.levels.Enabled(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	var matched *model.MemberLevelModel
+	for i := range levels {
+		level := &levels[i]
+		if level.Experience > experience {
+			continue
+		}
+		if matched == nil || level.Experience > matched.Experience {
+			matched = level
+		}
+	}
+
+	return matched, nil
 }
 
 // PointRecords 分页查询会员积分记录。

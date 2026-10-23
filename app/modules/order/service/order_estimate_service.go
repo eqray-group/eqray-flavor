@@ -37,10 +37,18 @@ type EstimateItemInput struct {
 type EstimateInput struct {
 	// StoreID 门店 ID
 	StoreID types.ID
+	// MemberID 会员 ID，0 表示散客
+	MemberID types.ID
 	// IsMember 是否会员
 	IsMember bool
 	// Items 明细行
 	Items []EstimateItemInput
+	// CouponID 使用的优惠券 ID，0 表示不用券
+	CouponID types.ID
+	// UsePoints 是否使用积分抵扣
+	UsePoints bool
+	// Channel 下单渠道，供券的渠道限制校验
+	Channel int8
 }
 
 // EstimateAddonResult 是试算结果里的一行加料。
@@ -79,18 +87,30 @@ type EstimateResult struct {
 	PayAmount          int64                `json:"payAmount"`
 	// Steps 计价过程留档，前端可展开给顾客看
 	Steps []PricingStep `json:"steps"`
+	// ActivityNames 生效的营销活动名称
+	ActivityNames []string `json:"activityNames"`
+	// CouponName 生效的优惠券名称
+	CouponName string `json:"couponName"`
+	// Notes 营销规则判定留档，供客服核对
+	Notes []string `json:"notes"`
 }
 
 // Estimate 按门店上下文试算一笔购物篮的价格。
 // 入参：门店、会员身份与明细行；返回逐行计价与合计。只读操作，不落库。
+// 说明：营销规则（活动 / 券 / 积分）与下单走同一条路径，保证「试算价 = 下单价」。
 func (s *OrderService) Estimate(ctx context.Context, in EstimateInput) (*EstimateResult, error) {
 	lines, err := s.resolveLines(ctx, in.StoreID, in.IsMember, in.Items)
 	if err != nil {
 		return nil, err
 	}
 
-	// 营销模块未建成：活动 / 券 / 积分暂无来源，规则入参只带会员身份
-	result := CalculatePricing(lines, PricingRuleInput{IsMember: in.IsMember})
+	// 营销规则解析：把活动、券、积分折算成计价引擎的入参
+	marketing, err := s.buildPricingRule(ctx, in.StoreID, in.MemberID, in.Channel, in.CouponID, in.UsePoints, lines)
+	if err != nil {
+		return nil, err
+	}
+
+	result := CalculatePricing(lines, marketing.Rule)
 
 	out := &EstimateResult{
 		Lines:              make([]EstimateLineResult, 0, len(result.Lines)),
@@ -102,6 +122,9 @@ func (s *OrderService) Estimate(ctx context.Context, in EstimateInput) (*Estimat
 		PointsAmount:       result.PointsAmount,
 		PayAmount:          result.PayAmount,
 		Steps:              result.Steps,
+		ActivityNames:      marketing.Output.ActivityNames,
+		CouponName:         marketing.Output.CouponName,
+		Notes:              marketing.Output.Notes,
 	}
 	for _, line := range result.Lines {
 		addons := make([]EstimateAddonResult, 0, len(line.Addons))

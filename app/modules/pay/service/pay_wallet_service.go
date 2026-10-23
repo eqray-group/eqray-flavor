@@ -81,7 +81,6 @@ type PayWalletRechargeRow struct {
 // 余额变动一律走条件更新 + 流水，避免并发把余额扣成负数。
 type PayWalletService struct {
 	wallets *repository.PayWalletRepository
-	orders  *PayOrderService
 	// ordersRepo 钱包余额支付需要直接落支付单
 	ordersRepo *repository.PayOrderRepository
 	// apps 支付应用配置，余额支付要写支付单的业务通知地址
@@ -91,14 +90,20 @@ type PayWalletService struct {
 }
 
 // NewPayWalletService 构造钱包服务。
+// 注意：这里不注入 PayOrderService——支付单服务反过来依赖钱包服务，
+// 互相构造会无限递归。这里改为按需构造，见 orderService。
 func NewPayWalletService() *PayWalletService {
 	return &PayWalletService{
 		wallets:     repository.NewPayWalletRepository(),
-		orders:      NewPayOrderService(),
 		ordersRepo:  repository.NewPayOrderRepository(),
 		apps:        repository.NewPayAppRepository(),
 		notifyTasks: NewPayNotifyTaskService(),
 	}
+}
+
+// orderService 惰性构造支付单服务，避免与 PayOrderService 互相构造导致栈溢出。
+func (s *PayWalletService) orderService() *PayOrderService {
+	return NewPayOrderService()
 }
 
 // Page 分页查询钱包，支持按用户与用户类型筛选。
@@ -373,7 +378,7 @@ func (s *PayWalletService) CreateRecharge(ctx context.Context, in PayWalletRecha
 	}
 
 	// 充值单用记录 ID 作为商户订单号，保证同一笔充值只有一张支付单
-	order, err := s.orders.Create(ctx, PayOrderCreateInput{
+	order, err := s.orderService().Create(ctx, PayOrderCreateInput{
 		AppID:           in.AppID,
 		ChannelCode:     in.ChannelCode,
 		UserID:          in.UserID,

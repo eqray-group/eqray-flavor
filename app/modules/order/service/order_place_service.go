@@ -16,6 +16,7 @@ import (
 	"eqray-flavor/app/modules/base/errs"
 	support "eqray-flavor/app/modules/base/support"
 	"eqray-flavor/app/modules/base/types"
+	memberService "eqray-flavor/app/modules/member/service"
 	orderEnums "eqray-flavor/app/modules/order/enums"
 	orderErrs "eqray-flavor/app/modules/order/errs"
 	orderModel "eqray-flavor/app/modules/order/model"
@@ -69,6 +70,10 @@ type CreateOrderInput struct {
 	Items []CreateOrderItemInput
 	// IsMember 是否会员（决定会员价）
 	IsMember bool
+	// CouponID 使用的优惠券 ID，0 表示不用券
+	CouponID types.ID
+	// UsePoints 是否使用积分抵扣
+	UsePoints bool
 }
 
 // CreateResult 是下单结果：订单与是否幂等命中。
@@ -163,7 +168,21 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*Create
 	if err != nil {
 		return nil, err
 	}
-	pricing := CalculatePricing(lines, PricingRuleInput{IsMember: in.IsMember})
+
+	// 营销规则解析：活动、券、积分与试算走同一条路径
+	marketing, err := s.buildPricingRule(ctx, in.StoreID, in.MemberID, int8(in.Channel), in.CouponID, in.UsePoints, lines)
+	if err != nil {
+		return nil, err
+	}
+	pricing := CalculatePricing(lines, marketing.Rule)
+
+	// 实际使用的积分数：按最终生效的积分抵扣金额与下单时的兑换比例折算。
+	// 必须用计价引擎的结果而不是营销侧的原值——引擎会把积分抵扣截断到剩余应付，
+	// 用原值折算会多扣会员积分。
+	pointsUsed := 0
+	if pricing.PointsAmount > 0 && marketing.Output.ExchangeRate > 0 {
+		pointsUsed = int(pricing.PointsAmount * int64(marketing.Output.ExchangeRate) / 100)
+	}
 
 	// 组装订单与快照
 	order := &orderModel.CaterOrderModel{
@@ -183,6 +202,7 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*Create
 		ActivityAmount:     pricing.ActivityAmount,
 		CouponAmount:       pricing.CouponAmount,
 		PointsAmount:       pricing.PointsAmount,
+		PointsUsed:         pointsUsed,
 		PayAmount:          pricing.PayAmount,
 		DiscountSnapshot:   marshalSnapshot(pricing),
 		PickupCode:         newPickupCode(),
@@ -247,6 +267,23 @@ func (s *OrderService) Create(ctx context.Context, in CreateOrderInput) (*Create
 		}
 		if err := s.orders.CreateItemAddons(ctx, tx, addons); err != nil {
 			return err
+		}
+
+		// 锁定优惠券：未使用 → 锁定，等待收款核销；已被其他订单占用时整单回滚
+		if in.CouponID > 0 {
+			if _, err := s.promotions.LockCoupons(ctx, tx, order.ID, []types.ID{in.CouponID}); err != nil {
+				return err
+			}
+		}
+
+		// 占用活动名额并记录「订单 ↔ 活动 ↔ 周期键」关联：
+		// 名额计数行只有 (activity_id, period_key)，无法反查订单，
+		// 取消 / 超时关单 / 整单退款时需要靠这张表精确定位要退哪个池子。
+		// 名额被并发抢完时整单回滚——活动优惠已计入订单金额，不能让这单成立。
+		if len(marketing.Output.ActivityIDs) > 0 {
+			if _, err := s.promotions.OccupyActivityQuotasForOrder(ctx, tx, order.ID, marketing.Output.ActivityIDs, types.Now()); err != nil {
+				return err
+			}
 		}
 
 		return s.orders.CreateLog(ctx, tx, orderRepository.NewOrderLogModel(
@@ -355,6 +392,36 @@ func (s *OrderService) Transit(ctx context.Context, in TransitInput) error {
 			return errs.New(orderErrs.OrderStatusInvalidTransition, order.Status.String(), in.To.String())
 		}
 
+		// 取消订单时释放占用的优惠券：锁定 → 未使用，顾客可继续使用
+		if in.To == orderEnums.OrderStatusCancelled {
+			if _, err := s.promotions.ReleaseCoupons(ctx, tx, order.ID); err != nil {
+				return err
+			}
+		}
+
+		// 整单退款完成时返还已核销的优惠券：已使用 → 未使用（部分退款不返还）
+		if in.To == orderEnums.OrderStatusRefunded {
+			if _, err := s.promotions.ReturnCoupons(ctx, tx, order.ID); err != nil {
+				return err
+			}
+		}
+
+		// 释放活动名额：取消与整单退款都要把名额还回活动池子，
+		// 否则名额被占完却不生效，活动的投放量会被无效订单吃光。
+		if in.To == orderEnums.OrderStatusCancelled || in.To == orderEnums.OrderStatusRefunded {
+			if _, err := s.promotions.ReleaseActivityQuotas(ctx, tx, order.ID); err != nil {
+				return err
+			}
+		}
+
+		// 整单退款时逆向补偿会员资产：返还已抵扣的积分、回退已赠送的成长值。
+		// 部分退款不走这条路径（走 Refunding 状态由售后处理），不返还券也不退积分。
+		if in.To == orderEnums.OrderStatusRefunded {
+			if err := s.refundMemberPoints(ctx, tx, order); err != nil {
+				return err
+			}
+		}
+
 		return s.orders.CreateLog(ctx, tx, orderRepository.NewOrderLogModel(
 			order.ID, order.Status, in.To, in.OperatorType, in.OperatorID, in.OperatorName, in.Reason,
 		))
@@ -414,6 +481,16 @@ func (s *OrderService) CloseExpired(ctx context.Context, limit uint64) (int, err
 				"cancel_reason": "超时未支付，系统自动关单",
 			})
 			if err != nil || !moved {
+				return err
+			}
+
+			// 释放占用的优惠券：锁定 → 未使用
+			if _, err := s.promotions.ReleaseCoupons(ctx, tx, order.ID); err != nil {
+				return err
+			}
+
+			// 释放占用的活动名额：超时关单的单从未生效，名额必须还回
+			if _, err := s.promotions.ReleaseActivityQuotas(ctx, tx, order.ID); err != nil {
 				return err
 			}
 
@@ -595,6 +672,18 @@ func (s *OrderService) HandlePayNotify(ctx context.Context, headers map[string]s
 			return err
 		}
 
+		// 核销优惠券：锁定 → 已使用
+		if _, err := s.promotions.UseCoupons(ctx, tx, order.ID); err != nil {
+			return err
+		}
+
+		// 扣减积分抵扣并累计成长值：会员资产变更与订单状态在同一事务内完成
+		if order.MemberID > 0 {
+			if err := s.settleMemberPoints(ctx, tx, order); err != nil {
+				return err
+			}
+		}
+
 		return s.orders.CreateLog(ctx, tx, orderRepository.NewOrderLogModel(
 			order.ID, order.Status, target,
 			int8(orderEnums.OperatorTypeSystem), 0, "支付回调", "支付成功 "+payOrder.No,
@@ -605,6 +694,67 @@ func (s *OrderService) HandlePayNotify(ctx context.Context, headers map[string]s
 	}
 
 	return "success", nil
+}
+
+// settleMemberPoints 结算会员资产：扣减积分抵扣、累计成长值。
+// 入参：事务与订单；返回错误表示会员资产变更失败，整单回滚。
+// 说明：积分按订单落库的 points_used 扣减（不是按当前比例现算），
+// 成长值按实付金额累计，等级只升不降。
+// 会员资产的变更走 Tx 版本，与订单状态在同一个事务里生效，回滚时一起撤销。
+func (s *OrderService) settleMemberPoints(ctx context.Context, tx db.Tx, order *orderModel.CaterOrderModel) error {
+	memberService := memberService.NewMemberService()
+
+	// 积分抵扣：按下单时锁定的积分数扣减，与退款时的返还数一一对应
+	if order.PointsUsed > 0 {
+		if err := memberService.ConsumePointTx(ctx, tx, order.MemberID, order.PointsUsed, "订单积分抵扣", "订单号 "+order.No, order.ID); err != nil {
+			return err
+		}
+	}
+
+	// 成长值：按实付金额累计，1 元 = 1 成长值
+	experience := int(order.PayAmount / 100)
+	if experience > 0 {
+		if err := memberService.AddExperienceTx(ctx, tx, order.MemberID, experience, "订单消费成长", "订单号 "+order.No); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// refundMemberPoints 退款时返还会员资产：返还已抵扣积分并回退成长值。
+// 入参：事务与订单；返回错误表示会员资产变更失败，整单回滚。
+// 说明：
+// 1. 积分按订单落库的 points_used 返还，与结算时的扣减数严格相等；
+// 2. 只有已结算过（付过款）才返还——未支付的订单从没扣过积分，返还会凭空加积分；
+// 3. 成长值按实付金额回退，等级只升不降因此不做降级处理。
+func (s *OrderService) refundMemberPoints(ctx context.Context, tx db.Tx, order *orderModel.CaterOrderModel) error {
+	// 未支付过的订单没有结算过会员资产，无需逆向补偿
+	if !order.Status.IsPaid() && order.PayStatus != orderEnums.PayStatusPaid && order.PayStatus != orderEnums.PayStatusRefunded {
+		return nil
+	}
+	if order.MemberID == 0 {
+		return nil
+	}
+
+	memberService := memberService.NewMemberService()
+
+	// 返还积分抵扣：与结算时的扣减数一一对应
+	if order.PointsUsed > 0 {
+		if err := memberService.RestorePointTx(ctx, tx, order.MemberID, order.PointsUsed, "订单退款返还积分", "订单号 "+order.No, order.ID); err != nil {
+			return err
+		}
+	}
+
+	// 回退成长值：按实付金额算出的赠送值扣回，等级只升不降不处理降级
+	experience := int(order.PayAmount / 100)
+	if experience > 0 {
+		if err := memberService.DeductExperienceTx(ctx, tx, order.MemberID, experience); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // newOrderNo 生成订单号：O + 时间戳 + 雪花尾 6 位。

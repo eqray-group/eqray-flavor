@@ -47,6 +47,11 @@ type CaterOrderModel struct {
 	CouponAmount int64 `db:"coupon_amount" json:"couponAmount"`
 	// PointsAmount 积分抵扣（分）
 	PointsAmount int64 `db:"points_amount" json:"pointsAmount"`
+	// PointsUsed 实际使用的积分数。
+	// 下单时按当时生效的兑换比例把 PointsAmount 折算成积分数并落库，
+	// 支付时按这个数扣减、退款时按这个数返还，
+	// 避免兑换比例调整后出现「扣的积分与退的积分对不上」。
+	PointsUsed int `db:"points_used" json:"pointsUsed"`
 	// PayAmount 应付金额（分）= item_amount + addon_amount - activity_amount - coupon_amount - points_amount
 	PayAmount int64 `db:"pay_amount" json:"payAmount"`
 	// RefundAmount 已退款金额（分）

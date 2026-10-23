@@ -35,6 +35,10 @@ type EstimateRequest struct {
 	StoreID types.ID `form:"storeId" json:"storeId"`
 	// Items 明细行
 	Items []ClientLine `form:"items" json:"items"`
+	// CouponID 使用的优惠券 ID，0 表示不用券
+	CouponID types.ID `form:"couponId" json:"couponId"`
+	// UsePoints 是否使用积分抵扣
+	UsePoints bool `form:"usePoints" json:"usePoints"`
 }
 
 // Rules 返回校验规则。
@@ -69,6 +73,10 @@ type CreateRequest struct {
 	ReceiverAddress string `form:"receiverAddress" json:"receiverAddress"`
 	// Items 明细行
 	Items []ClientLine `form:"items" json:"items"`
+	// CouponID 使用的优惠券 ID，0 表示不用券
+	CouponID types.ID `form:"couponId" json:"couponId"`
+	// UsePoints 是否使用积分抵扣
+	UsePoints bool `form:"usePoints" json:"usePoints"`
 }
 
 // Rules 返回校验规则。

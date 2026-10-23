@@ -55,6 +55,7 @@ func (r *CaterOrderRepository) CreateOrder(ctx context.Context, tx db.Tx, m *mod
 		"activity_amount":      m.ActivityAmount,
 		"coupon_amount":        m.CouponAmount,
 		"points_amount":        m.PointsAmount,
+		"points_used":          m.PointsUsed,
 		"pay_amount":           m.PayAmount,
 		"refund_amount":        m.RefundAmount,
 		"discount_snapshot":    m.DiscountSnapshot,
@@ -219,7 +220,7 @@ func (r *CaterOrderRepository) ListExpiredPendingPay(ctx context.Context, now ti
 	list := make([]model.CaterOrderModel, 0)
 	if err := facades.DB().WithContext(ctx).Table(model.CaterOrderTable).
 		Where("status", int16(orderEnums.OrderStatusPendingPay)).
-		Where("expire_time", "<", types.DateTime(now)).
+		Where("expire_time < ?", types.DateTime(now)).
 		WhereNull("deleted_at").
 		OrderBy("id").
 		Limit(limit).

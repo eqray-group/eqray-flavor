@@ -137,7 +137,7 @@ func (r *ApiLogRepository) PaginateError(ctx context.Context, filter ApiLogFilte
 // 返回值：受影响的行数与数据库错误。
 func (r *ApiLogRepository) DeleteAccessBefore(ctx context.Context, before types.DateTime) (int64, error) {
 	result, err := facades.DB().WithContext(ctx).Table(apiAccessLogTable).
-		Where("created_at", "<", before).
+		Where("created_at < ?", before).
 		Delete()
 	if err != nil {
 		return 0, err

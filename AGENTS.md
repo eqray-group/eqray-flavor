@@ -12,7 +12,7 @@ Goravel 文档本地副本在 `docs/framework/`（按需查，不要批量读）
   `web/system-manage-ui` 可用，`web/merchant-manage-ui`、`mobile/customer-uniapp`、`mobile/rider-uniapp` 是占位目录，对应模块开工前不要写代码。详见 `template/README.md`。
 - 认证：账号密码 + 图形验证码，访问 / 刷新双令牌；RBAC 权限点 `模块:资源:动作`，`SUPER_ADMIN` 直接放行；菜单由后端 `system_menu` 下发（`VITE_ACCESS_MODE=backend`）。
 - 初始账号 `admin` / `admin123`。
-- 模块：`system`（认证、用户、角色、菜单、字典、登录/操作日志）、`infra`（参数、文件、文件配置、API 日志、短信）、`member`（会员、等级、积分、签到、地址、社交登录）、`store`（门店组织树、门店员工与可见门店数据权限、桌台区域与桌台、骑手档案、打印设备与模板）、`dish`（分类、SPU/SKU、加料、门店可售与门店价、C 端菜单聚合）、`order`（价格试算、下单幂等、订单状态机、与支付的回调对接）、`pay`（支付应用与渠道、支付单与退款、回调通知任务、会员钱包与充值）。
+- 模块：`system`（认证、用户、角色、菜单、字典、登录/操作日志）、`infra`（参数、文件、文件配置、API 日志、短信）、`member`（会员、等级、积分、签到、地址、社交登录）、`store`（门店组织树、门店员工与可见门店数据权限、桌台区域与桌台、骑手档案、打印设备与模板）、`dish`（分类、SPU/SKU、加料、门店可售与门店价、C 端菜单聚合）、`order`（价格试算、下单幂等、订单状态机、与支付的回调对接）、`pay`（支付应用与渠道、支付单与退款、回调通知任务、会员钱包与充值）、`promotion`（优惠券模板与会员券、营销活动与名额、积分抵扣规则）。
 - 定时任务只在 `bootstrap/schedule.go`：03:10 清理 API 访问日志、每分钟派发支付通知任务、每 5 分钟关闭超时支付单与超时订单（`bootstrap/app.go` 的 `WithSchedule` 装载）。任务后台页面已删除，不要再引入。
 
 ## 2. 命令
@@ -58,6 +58,7 @@ template/
 | `dish` | `/api/v1/dish` | 同上 | `/api/v1/client/dish` | 无（门店菜单按 storeId 查） |
 | `pay` | `/api/v1/pay` | 同上 | `/api/v1/client/pay`（钱包） | MemberAuth |
 | `order` | `/api/v1/order` | 同上 | `/api/v1/client/order` | MemberAuth |
+| `promotion` | `/api/v1/promotion` | 同上 | `/api/v1/client/promotion` | MemberAuth |
 | `pay` 回调 | `/api/v1/pay/callbacks/*` | 无（渠道直连，自带验签） | — | — |
 | `order` 回调 | `/api/v1/order/callbacks/pay` | 无（pay 加签推送） | — | — |
 
@@ -121,8 +122,8 @@ facades.Route().Prefix("/api/v1/member").Group(func(r route.Router) {
 
 - `result.Success(ctx, data)` / `result.Fail(ctx, err)` / `result.Page(ctx, list, total)`；业务错误 HTTP 200，`code != 0`。
 - 分页一律 `param.FromQuery(ctx)`（默认 10 条），**不要手拼 `param.Page{}` 再 Normalize**。
-- 错误码 `1_{模块}_{子模块}_{序号}`：模块 `001` infra、`002` system、`003` member、`004` store。
-- 子模块号登记在各 `errs/*_error.go` 文件头，新增前先看占用情况（member：user 001 / level 002 / tag 003 / group 004 / social 005 / auth 006 / address 007 / sign 008；store：store 001 / table 002 / employee 003 / printer 004 / rider 005）。
+- 错误码 `1_{模块}_{子模块}_{序号}`：模块 `001` infra、`002` system、`003` member、`004` store、`005` dish、`006` order、`007` promotion、`008` pay。
+- 子模块号登记在各 `errs/*_error.go` 文件头，新增前先看占用情况（member：user 001 / level 002 / tag 003 / group 004 / social 005 / auth 006 / address 007 / sign 008；store：store 001 / table 002 / employee 003 / printer 004 / rider 005；promotion：coupon-template 001 / coupon 002 / activity 003 / points 004）。
 - 中间件里 `Abort` 的中断必须调 `result.MarkFail(ctx, code)` 或 `result.AbortFail(ctx, err)`，否则错误日志 `message` 为空。
 
 ### 4.5 迁移
@@ -255,7 +256,48 @@ facades.Route().Prefix("/api/v1/member").Group(func(r route.Router) {
   越权按「订单不属于当前门店」拒绝。C 端会员只能看自己的订单（`MemberDetail`）。
 - 菜品与加料名称、价格全部落快照，菜品后续改价不影响历史订单。
 
-### 4.12 注释
+### 4.12 营销（promotion）
+
+营销模块的**判定口径已锁定**在 `docs/design/07-会员与营销设计.md`，改之前先看 §3（券）、§4（优惠顺序）、§5（活动引擎）。
+
+- 表：`promotion_coupon_template`（券模板）/ `promotion_coupon`（会员券）/ `promotion_activity`（活动）/
+  `promotion_activity_product`（活动参与商品）/ `promotion_activity_quota`（活动名额）/
+  `promotion_order_activity`（订单占用的名额与周期键）/ `promotion_point_rule`（积分规则）。
+- **规则解析是纯函数**：`service/rule.go` 的 `Resolve(in RuleInput)` 不碰数据库，入参是装配好的活动与券快照，
+  出参带逐步留档（`Notes`）。service 层只负责从库里装配入参。改玩法只动这个文件，别在 service 里写分支。
+- **活动判定顺序固定**（`07 §5`）：同类型互斥取优先级最高 → 排除组互斥 → 独占活动生效即终止 →
+  可叠加活动累加 → 名额用完跳过 → 累加不超过商品小计。合法流转不要在别处重复实现。
+- **券生命周期**：`1` 未使用 → `2` 锁定 → `3` 已使用；`1` → `4` 已过期；`2` → `1`（取消 / 超时释放）；
+  `3` → `1`（整单退款返还）。合法流转由 `enums.CouponStatus.CanTransit` 判定。
+  状态流转一律用 `WHERE status = <原状态>` 条件更新，**不要先查再改**。
+- **券状态与订单绑定**：下单锁券（未使用 → 锁定）、支付核销（锁定 → 已使用）、
+  取消 / 超时关单释放（锁定 → 未使用）、整单退款返还（已使用 → 未使用）。部分退款不返还。
+- **整单退款要退干净**（`05 §6`）：返还优惠券 + 退回积分抵扣 + 回退成长值 + 释放活动名额，
+  四件事和订单状态流转在**同一个事务**里做完。部分退款只退钱、按比例扣回赠送积分，
+  不返还券、不退积分抵扣、不释放名额。
+- **积分出入都按订单上落库的 `points_used`**，不要用「当前兑换比例 × 抵扣金额」现算：
+  兑换比例调整后现算会退错账。`points_used` 在下单时按最终抵扣金额折算一次并落库。
+- **积分与成长值只能通过 member 模块的原子方法变更**（`ConsumePoint` / `RestorePoint` / `AddExperience` /
+  `DeductExperience`），业务模块不得直接更新 `member_user.point` / `member_user.experience`。
+  扣减用 `WHERE point >= ?` 条件更新；成长值回退用 `LEAST(experience, ?)` 扣减，保证不扣成负数、
+  也不因后台调过成长值而让退款卡住。跨模块必须与业务单据同生共死时用 `*Tx` 版本（`ConsumePointTx` /
+  `RestorePointTx` / `AddExperienceTx` / `DeductExperienceTx`），**不要在外层事务里调自开事务的版本**。
+- **并发保护**：券发行量用 `WHERE issued_count + ? <= total_count`；活动名额占用用 `WHERE used_count < ?`
+  条件更新（未命中时先区分「计数行不存在」与「名额已满」，前者插入初始行、唯一键冲突则重试一次），
+  释放用 `WHERE used_count > 0` 防重复释放扣成负数；名额周期键：整期用 `fixed`，每日用 `YYYY-MM-DD`。
+- **名额必须占多少放多少**：下单占用 → `promotion_order_activity` 记 `(order_id, activity_id, period_key)`；
+  取消 / 超时关单 / 整单退款按这张表逐条回退 `used_count`（关联记录用 `WHERE status = 1` 条件更新，
+  保证同一名额不会被重复释放）。**不能按「当前日期」重算周期键**——每日周期的活动跨天后再算会退错池子。
+- **名额「用完跳过」而不是报错**：规则引擎算价时已按 `quota_used` 跳过名额用完的活动，
+  所以下单照常成功、只是该活动不产生优惠。占用环节的报错只用于「算价时还有名额、写入时被并发抢掉」这一竞态。
+- **优惠计算唯一入口**是 `order/service/order_promotion_service.go` 的 `buildPricingRule`：
+  订单与营销之间的唯一通道，试算与下单共用，保证「试算价 = 下单价」。**不要在别处再装配一遍营销规则。**
+- 优惠顺序固定为「原价 → 单品级优惠 → 商品级活动 → 订单级活动 → 优惠券 → 积分抵扣 → 储值卡抵扣」，
+  全程整型分。券门槛按活动后金额比较。
+- 字典前缀统一 `promotion_`（见 `docs/design/12`），权限点 `promotion:coupon-template:*` /
+  `promotion:coupon:*` / `promotion:activity:*`。
+
+### 4.13 注释
 
 每个函数/方法都要文档注释：**做什么 + 关键约束 + 入参 + 返回**，中文描述业务语义。
 
@@ -304,13 +346,15 @@ func (c *UserController) Index(ctx http.Context) http.Response {
 
 ## 6. 已知坑
 
-1. **Goravel 三参数 `Where` 会编译成 `id IN ('!=', 123)`**：用 `Where("id <> ?", id)`、`WhereLike("name", "%"+kw+"%")`、`WhereIn("id", []any{...})`。
+1. **Goravel 三参数 `Where` 会编译成 `id IN ('!=', 123)`**：用 `Where("id <> ?", id)`、`WhereLike("name", "%"+kw+"%")`、`WhereIn("id", []any{...})`。**比较运算一律写 `Where("col <= ?", v)`**，不要写 `Where("col", "<=", v)`——后者拼成 `col IN ('<=', v)`，永远不命中且不报错。
 2. **`SUM/AVG/MAX` 空集返回 NULL**：用 `Select("COALESCE(SUM(size), 0) AS size")` + `First(&row)`（`Get` 只接受 slice）。
 3. **`RowsAffected == 0` 不等于记录不存在**（新旧值相同）：再查一次存在性，参考 `FileConfigRepository.SetMaster`。
 4. **`v-auth` 同时读 `user.info.buttons` 与 `meta.authList`**：后端动态菜单没有 `authList`，只读它会隐藏全部按钮。
 5. **权限缓存 30 分钟**：改菜单/权限后要前移 `rbac:version`，前端还需重新登录清本地路由。
 6. **中间件 `Abort` 不调 `MarkFail` / `AbortFail`** → 错误日志 `message` 为空。
 7. **S3/MinIO**：`usePathStyle=true`，`url` 前缀决定访问地址，Bucket 未公开读会 403。
+8. **`tinyint` 存不下百位段位状态**：MySQL `tinyint` 上限 127，订单状态 `100~800` 必须用 `smallint`。
+   枚举值超过 127 时，建表迁移的列类型要跟枚举类型对齐（`enums.OrderStatus` 是 `int16`）。
 
 ## 7. 排查表
 
@@ -327,6 +371,8 @@ func (c *UserController) Index(ctx http.Context) http.Response {
 | 打印设备号重复绑定 | 同一 `store_id` 是否已有该 `device_no`（`uk_store_device`）；请求头门店是否正确 |
 | 打印接口出现明文密钥 | 列表 DTO 是否误带 `Secret`；模型必须保持 `json:"-"`，且不要新增回显明文的接口 |
 | 模板版本没有递增 | 只有 `content` 变化才 +1；仅改名称 / 纸宽 / 状态不递增 |
+| 活动 / 券不生效 | 先查 `promotion_activity.status` 与起止时间是否覆盖当前时刻，再查 `service.Resolve` 的 `Notes` 留档 |
+| 券一直可用但扣不掉 | 查 `promotion_coupon.order_id` 是否残留脏锁；订单取消 / 超时关单会释放 |
 
 ## 8. 提交清单
 

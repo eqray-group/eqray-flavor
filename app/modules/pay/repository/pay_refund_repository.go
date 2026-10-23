@@ -68,10 +68,10 @@ func (r *PayRefundRepository) Paginate(ctx context.Context, filter PayRefundFilt
 		query = query.Where("status", *filter.Status)
 	}
 	if filter.CreatedFrom != nil {
-		query = query.Where("created_at", ">=", *filter.CreatedFrom)
+		query = query.Where("created_at >= ?", *filter.CreatedFrom)
 	}
 	if filter.CreatedTo != nil {
-		query = query.Where("created_at", "<=", *filter.CreatedTo)
+		query = query.Where("created_at <= ?", *filter.CreatedTo)
 	}
 
 	if err := query.OrderByDesc("id").Paginate(pageNo, pageSize, &list, &total); err != nil {

@@ -65,8 +65,8 @@ func (r *MemberSignRepository) DatesBetween(ctx context.Context, userID types.ID
 
 	if err := facades.DB().WithContext(ctx).Table(signRecordTable).
 		Where("user_id", userID).
-		Where("sign_date", ">=", from.Format(dateLayout)).
-		Where("sign_date", "<", to.Format(dateLayout)).
+		Where("sign_date >= ?", from.Format(dateLayout)).
+		Where("sign_date < ?", to.Format(dateLayout)).
 		WhereNull("deleted_at").
 		OrderBy("sign_date").
 		Get(&list); err != nil {

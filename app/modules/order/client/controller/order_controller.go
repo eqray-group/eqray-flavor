@@ -33,9 +33,13 @@ func (c *OrderController) Estimate(ctx http.Context) http.Response {
 
 	memberID := support.MemberID(ctx.Context())
 	out, err := c.service.Estimate(ctx.Context(), service.EstimateInput{
-		StoreID:  req.StoreID,
-		IsMember: memberID > 0,
-		Items:    toEstimateItems(req.Items),
+		StoreID:   req.StoreID,
+		MemberID:  memberID,
+		IsMember:  memberID > 0,
+		Items:     toEstimateItems(req.Items),
+		CouponID:  req.CouponID,
+		UsePoints: req.UsePoints,
+		Channel:   int8(orderEnums.OrderChannelMiniProgram),
 	})
 	if err != nil {
 		return result.Fail(ctx, err)
@@ -67,6 +71,8 @@ func (c *OrderController) Create(ctx http.Context) http.Response {
 		ReceiverAddress: req.ReceiverAddress,
 		Items:           toCreateItems(req.Items),
 		IsMember:        memberID > 0,
+		CouponID:        req.CouponID,
+		UsePoints:       req.UsePoints,
 	})
 	if err != nil {
 		return result.Fail(ctx, err)

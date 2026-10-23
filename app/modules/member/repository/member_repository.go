@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/goravel/framework/contracts/database/db"
+	frameworkDB "github.com/goravel/framework/database/db"
 
 	"eqray-flavor/app/facades"
 	baseEnums "eqray-flavor/app/modules/base/enums"
@@ -153,6 +154,156 @@ func (r *MemberRepository) UpdateLevel(ctx context.Context, tx db.Tx, m *model.M
 		})
 
 	return err
+}
+
+// DeductPoint 原子扣减积分：带「余额 >= 扣减额」条件更新，保证并发下不会扣成负数。
+// 入参：事务、会员 ID、扣减积分数（正数）、更新者；返回扣减后的余额与是否成功。
+// 影响 0 行表示余额不足或会员不存在，调用方据此回滚事务。
+func (r *MemberRepository) DeductPoint(ctx context.Context, tx db.Tx, id types.ID, point int, updater string) (int, bool, error) {
+	if point <= 0 {
+		return 0, false, nil
+	}
+
+	res, err := tx.Table(memberTable).
+		Where("id", id).
+		Where("point >= ?", point).
+		WhereNull("deleted_at").
+		Update(map[string]any{
+			"point":      frameworkDB.Raw("point - ?", point),
+			"updater":    updater,
+			"updated_at": types.Now(),
+		})
+	if err != nil {
+		return 0, false, err
+	}
+	if res.RowsAffected == 0 {
+		return 0, false, nil
+	}
+
+	// 回读扣减后的余额，用于写积分流水的 total_point
+	row := struct {
+		Point int `db:"point"`
+	}{}
+	if err := tx.Table(memberTable).
+		Select("point").
+		Where("id", id).
+		WhereNull("deleted_at").
+		First(&row); err != nil {
+		return 0, false, err
+	}
+
+	return row.Point, true, nil
+}
+
+// AddPoint 原子增加积分：整单退款返还积分等场景使用。
+// 入参：事务、会员 ID、增加积分数（正数）、更新者；返回增加后的余额与是否成功。
+func (r *MemberRepository) AddPoint(ctx context.Context, tx db.Tx, id types.ID, point int, updater string) (int, bool, error) {
+	if point <= 0 {
+		return 0, false, nil
+	}
+
+	res, err := tx.Table(memberTable).
+		Where("id", id).
+		WhereNull("deleted_at").
+		Update(map[string]any{
+			"point":      frameworkDB.Raw("point + ?", point),
+			"updater":    updater,
+			"updated_at": types.Now(),
+		})
+	if err != nil {
+		return 0, false, err
+	}
+	if res.RowsAffected == 0 {
+		return 0, false, nil
+	}
+
+	row := struct {
+		Point int `db:"point"`
+	}{}
+	if err := tx.Table(memberTable).
+		Select("point").
+		Where("id", id).
+		WhereNull("deleted_at").
+		First(&row); err != nil {
+		return 0, false, err
+	}
+
+	return row.Point, true, nil
+}
+
+// AddExperience 原子累加成长值：等级只升不降，成长值按消费金额累计。
+// 入参：事务、会员 ID、累加成长值、更新者；返回累加后的成长值与是否成功。
+func (r *MemberRepository) AddExperience(ctx context.Context, tx db.Tx, id types.ID, experience int, updater string) (int, bool, error) {
+	if experience <= 0 {
+		return 0, false, nil
+	}
+
+	res, err := tx.Table(memberTable).
+		Where("id", id).
+		WhereNull("deleted_at").
+		Update(map[string]any{
+			"experience": frameworkDB.Raw("experience + ?", experience),
+			"updater":    updater,
+			"updated_at": types.Now(),
+		})
+	if err != nil {
+		return 0, false, err
+	}
+	if res.RowsAffected == 0 {
+		return 0, false, nil
+	}
+
+	row := struct {
+		Experience int `db:"experience"`
+	}{}
+	if err := tx.Table(memberTable).
+		Select("experience").
+		Where("id", id).
+		WhereNull("deleted_at").
+		First(&row); err != nil {
+		return 0, false, err
+	}
+
+	return row.Experience, true, nil
+}
+
+// DeductExperience 原子回退成长值：整单退款扣回已赠送的成长值时使用。
+// 入参：事务、会员 ID、回退成长值（正数）、更新者；返回回退后的成长值与是否成功。
+// 说明：回退量按「当前成长值与待回退量的较小值」扣减，保证不会出现负数，
+// 也不因成长值被后台调整过而阻断退款流程。
+func (r *MemberRepository) DeductExperience(ctx context.Context, tx db.Tx, id types.ID, experience int, updater string) (int, bool, error) {
+	if experience <= 0 {
+		return 0, false, nil
+	}
+
+	res, err := tx.Table(memberTable).
+		Where("id", id).
+		WhereNull("deleted_at").
+		Update(map[string]any{
+			"experience": frameworkDB.Raw("experience - LEAST(experience, ?)", experience),
+			"updater":    updater,
+			"updated_at": types.Now(),
+		})
+	if err != nil {
+		return 0, false, err
+	}
+	if res.RowsAffected == 0 {
+		return 0, false, nil
+	}
+
+	// 回读回退后的成长值
+	row := struct {
+		Experience int `db:"experience"`
+	}{}
+	if err := tx.Table(memberTable).
+		Select("experience").
+		Where("id", id).
+		WhereNull("deleted_at").
+		First(&row); err != nil {
+		return 0, false, err
+	}
+
+	return row.Experience, true, nil
 }
 
 // UpdateStatus 只更新启用状态，列表切换开关时避免整行覆盖。

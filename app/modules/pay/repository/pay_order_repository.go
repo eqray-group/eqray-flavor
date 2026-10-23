@@ -69,10 +69,10 @@ func (r *PayOrderRepository) Paginate(ctx context.Context, filter PayOrderFilter
 		query = query.Where("user_id", filter.UserID)
 	}
 	if filter.CreatedFrom != nil {
-		query = query.Where("created_at", ">=", *filter.CreatedFrom)
+		query = query.Where("created_at >= ?", *filter.CreatedFrom)
 	}
 	if filter.CreatedTo != nil {
-		query = query.Where("created_at", "<=", *filter.CreatedTo)
+		query = query.Where("created_at <= ?", *filter.CreatedTo)
 	}
 
 	if err := query.OrderByDesc("id").Paginate(pageNo, pageSize, &list, &total); err != nil {
@@ -240,7 +240,7 @@ func (r *PayOrderRepository) ListExpired(ctx context.Context, now types.DateTime
 	list := make([]model.PayOrderModel, 0)
 	if err := facades.DB().WithContext(ctx).Table(payOrderTable).
 		Where("status", int8(payEnums.PayOrderStatusWaiting)).
-		Where("expire_time", "<=", now).
+		Where("expire_time <= ?", now).
 		WhereNull("deleted_at").
 		OrderBy("id").
 		Limit(limit).

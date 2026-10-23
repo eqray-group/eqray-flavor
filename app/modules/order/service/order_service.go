@@ -5,10 +5,11 @@ package service
 import (
 	dishRepository "eqray-flavor/app/modules/dish/repository"
 	orderRepository "eqray-flavor/app/modules/order/repository"
+	promotionService "eqray-flavor/app/modules/promotion/service"
 	storeRepository "eqray-flavor/app/modules/store/repository"
 )
 
-// OrderService 是订单模块的业务入口，聚合门店 / 菜品 / 订单三个仓储。
+// OrderService 是订单模块的业务入口，聚合门店 / 菜品 / 订单 / 营销四个仓储。
 // 试算与下单共用 resolveLines 装配口径，保证「试算价 = 下单价」。
 type OrderService struct {
 	stores     *storeRepository.StoreRepository
@@ -18,6 +19,7 @@ type OrderService struct {
 	dishStores *dishRepository.DishStoreRepository
 	addons     *dishRepository.DishAddonRepository
 	orders     *orderRepository.CaterOrderRepository
+	promotions *promotionService.PromotionService
 }
 
 // NewOrderService 构造订单服务。
@@ -30,5 +32,6 @@ func NewOrderService() *OrderService {
 		dishStores: dishRepository.NewDishStoreRepository(),
 		addons:     dishRepository.NewDishAddonRepository(),
 		orders:     orderRepository.NewCaterOrderRepository(),
+		promotions: promotionService.NewPromotionService(),
 	}
 }

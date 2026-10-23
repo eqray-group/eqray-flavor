@@ -93,7 +93,7 @@ func (r *PayNotifyRepository) ListDueTasks(ctx context.Context, now types.DateTi
 			int8(payEnums.PayNotifyStatusRequestSuccess),
 			int8(payEnums.PayNotifyStatusRequestFail),
 		}).
-		Where("next_notify_time", "<=", now).
+		Where("next_notify_time <= ?", now).
 		// 达到最大次数的任务不再重试，避免每轮调度都把它捞出来
 		WhereRaw("notify_times < max_notify_times", []any{}).
 		WhereNull("deleted_at").
