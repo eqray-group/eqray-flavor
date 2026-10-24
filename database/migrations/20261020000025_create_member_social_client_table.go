@@ -11,9 +11,9 @@ func (r *M20261020000025CreateMemberSocialClientTable) Signature() string {
 	return "20261020000025_create_member_social_client_table"
 }
 
-// Up 建第三方登录渠道配置表（对齐 yudao 的 system_social_client），
-// 并恢复 member_user.mobile 的唯一键：早期版本为自动注册放宽过唯一约束，
-// 现改为「未绑定不自动注册」，手机号仍是会员唯一标识。
+// Up 建第三方登录渠道配置表（对齐 yudao 的 system_social_client）。
+// 早期版本曾在这里补回 member_user.mobile 的唯一键（为自动注册放宽过约束），
+// 该唯一键已并入 20261020000014 建表语句，这里不再重复处理。
 func (r *M20261020000025CreateMemberSocialClientTable) Up() error {
 	if !facades.Schema().HasTable("member_social_client") {
 		if err := facades.DB().Statement(`
@@ -37,31 +37,10 @@ CREATE TABLE member_social_client (
 		}
 	}
 
-	return r.restoreMobileUnique()
-}
-
-// restoreMobileUnique 把 mobile 的唯一键恢复，保持幂等。
-func (r *M20261020000025CreateMemberSocialClientTable) restoreMobileUnique() error {
-	if !facades.Schema().HasTable("member_user") {
-		return nil
-	}
-
-	if facades.Schema().HasIndex("member_user", "idx_mobile") {
-		if err := facades.DB().Statement("ALTER TABLE member_user DROP INDEX idx_mobile"); err != nil {
-			return err
-		}
-	}
-
-	if !facades.Schema().HasIndex("member_user", "uk_mobile") {
-		if err := facades.DB().Statement("ALTER TABLE member_user ADD UNIQUE KEY uk_mobile (mobile)"); err != nil {
-			return err
-		}
-	}
-
 	return nil
 }
 
-// Down 回滚配置表；手机号唯一键不撤销。
+// Down 回滚配置表。
 func (r *M20261020000025CreateMemberSocialClientTable) Down() error {
 	return facades.Schema().DropIfExists("member_social_client")
 }

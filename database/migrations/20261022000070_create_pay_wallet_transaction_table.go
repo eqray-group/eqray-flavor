@@ -23,7 +23,7 @@ func (r *M20261022000070CreatePayWalletTransactionTable) Up() error {
 CREATE TABLE pay_wallet_transaction (
   id         bigint       NOT NULL COMMENT '流水编号',
   wallet_id  bigint       NOT NULL COMMENT '钱包编号',
-  biz_type   varchar(32)  NOT NULL DEFAULT '' COMMENT '业务类型：recharge / payment / refund / transfer',
+  biz_type   tinyint      NOT NULL DEFAULT 0 COMMENT '业务类型：1 充值 / 2 充值退款 / 3 支付 / 4 支付退款 / 5 手工调整',
   biz_id     varchar(64)  NOT NULL DEFAULT '' COMMENT '业务编号',
   type       tinyint      NOT NULL COMMENT '收支方向：1 收入 / 2 支出',
   price      bigint       NOT NULL DEFAULT 0 COMMENT '变动金额（分）',

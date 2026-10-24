@@ -28,8 +28,8 @@ CREATE TABLE pay_order (
   user_id            bigint        NOT NULL DEFAULT 0 COMMENT '付款用户编号',
   user_type          tinyint       NOT NULL DEFAULT 0 COMMENT '用户类型',
   merchant_order_id  varchar(64)   NOT NULL COMMENT '商户订单号',
-  subject            varchar(32)   NOT NULL COMMENT '商品标题',
-  body               varchar(128)  NOT NULL DEFAULT '' COMMENT '商品描述',
+  subject            varchar(128)  NOT NULL COMMENT '商品标题，与请求校验的上限 128 对齐',
+  body               varchar(255)  NOT NULL DEFAULT '' COMMENT '商品描述',
   notify_url         varchar(1024) NOT NULL DEFAULT '' COMMENT '异步通知地址',
   price              bigint        NOT NULL COMMENT '支付金额（分）',
   channel_fee_rate   double        NOT NULL DEFAULT 0 COMMENT '渠道费率，单位：百分比',
@@ -51,6 +51,7 @@ CREATE TABLE pay_order (
   PRIMARY KEY (id),
   UNIQUE KEY uk_no (no),
   KEY idx_merchant_order (merchant_order_id),
+  KEY idx_app_merchant_order (app_id, merchant_order_id),
   KEY idx_channel_order (channel_order_no),
   KEY idx_status_expire (status, expire_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='支付订单'`)

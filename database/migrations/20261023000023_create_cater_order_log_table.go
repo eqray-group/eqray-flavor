@@ -23,8 +23,8 @@ func (r *M20261023000023CreateCaterOrderLogTable) Up() error {
 CREATE TABLE cater_order_log (
   id            bigint       NOT NULL COMMENT '日志编号',
   order_id      bigint       NOT NULL COMMENT '订单 ID',
-  from_status   tinyint      NOT NULL DEFAULT 0 COMMENT '原状态，0 表示初始创建',
-  to_status     tinyint      NOT NULL COMMENT '新状态',
+  from_status   smallint     NOT NULL DEFAULT 0 COMMENT '原状态，0 表示初始创建',
+  to_status     smallint     NOT NULL COMMENT '新状态',
   operator_type tinyint      NOT NULL DEFAULT 1 COMMENT '操作方：1 顾客 / 2 店员 / 3 系统',
   operator_id   bigint       NOT NULL DEFAULT 0 COMMENT '操作人 ID，系统为 0',
   operator_name varchar(64)  NOT NULL DEFAULT '' COMMENT '操作人名称或系统动作描述',

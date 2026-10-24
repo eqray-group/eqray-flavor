@@ -40,6 +40,7 @@ CREATE TABLE store (
   delivery_rule  varchar(1000) NOT NULL DEFAULT '' COMMENT '配送规则 JSON：{"radius":3000,"minAmount":2000,"deliveryFee":500,"packingFee":100,"etaMinutes":40}，半径米、金额分、时长分钟',
   auto_accept    tinyint       NOT NULL DEFAULT 0 COMMENT '自动接单：1 外卖/自提单支付成功即自动接单并转制作中，0 需人工接单；堂食不受影响',
   online_enabled tinyint       NOT NULL DEFAULT 1 COMMENT '是否开放线上：0 否 / 1 是',
+  delivery_enabled tinyint     NOT NULL DEFAULT 0 COMMENT '是否开启外卖：1 是 / 0 否；默认关闭，关闭时顾客端不展示外卖入口',
   sort           int           NOT NULL DEFAULT 0 COMMENT '同级排序，越小越靠前',
   remark         varchar(255)  NOT NULL DEFAULT '' COMMENT '备注',
   creator        varchar(64)   NOT NULL DEFAULT '' COMMENT '创建人',

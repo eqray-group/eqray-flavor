@@ -42,6 +42,10 @@ CREATE TABLE pay_refund (
   channel_error_code  varchar(128)  NOT NULL DEFAULT '' COMMENT '渠道调用错误码',
   channel_error_msg   varchar(256)  NOT NULL DEFAULT '' COMMENT '渠道调用错误信息',
   channel_notify_data varchar(4096) NOT NULL DEFAULT '' COMMENT '渠道退款通知原文',
+  audit_status        tinyint       NOT NULL DEFAULT 0 COMMENT '审核状态：0 无需审核 / 1 待审核 / 2 已通过 / 3 已驳回',
+  audit_time          datetime      NULL COMMENT '审核时间',
+  audit_by            bigint        NOT NULL DEFAULT 0 COMMENT '审核人后台用户 ID',
+  audit_remark        varchar(255)  NOT NULL DEFAULT '' COMMENT '审核意见 / 驳回原因',
   creator             varchar(64)   NOT NULL DEFAULT '' COMMENT '创建者',
   created_at          datetime      NULL COMMENT '创建时间',
   updater             varchar(64)   NOT NULL DEFAULT '' COMMENT '更新者',
@@ -50,7 +54,8 @@ CREATE TABLE pay_refund (
   PRIMARY KEY (id),
   UNIQUE KEY uk_no (no),
   KEY idx_order (order_id),
-  KEY idx_merchant_refund (merchant_refund_id)
+  KEY idx_merchant_refund (merchant_refund_id),
+  KEY idx_app_merchant_refund (app_id, merchant_refund_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='退款订单'`)
 }
 

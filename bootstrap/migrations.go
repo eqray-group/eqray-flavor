@@ -76,7 +76,6 @@ func Migrations() []schema.Migration {
 		&migrations.M20261021000002SeedStoreMenu{},
 		&migrations.M20261022000001SeedStoreHeadquarter{},
 		&migrations.M20261022000002SeedStoreDicts{},
-		&migrations.M20261022000003AlterStoreAddDeliveryEnabled{},
 		&migrations.M20261022000004CreateStoreEmployeeTable{},
 		&migrations.M20261022000005SeedStoreRoleDict{},
 		&migrations.M20261022000006SeedStoreEmployeeMenu{},
@@ -134,12 +133,9 @@ func Migrations() []schema.Migration {
 		&migrations.M20261023000003SeedPayNotifyMenu{},
 		&migrations.M20261023000004SeedPayOrderSyncMenu{},
 		&migrations.M20261023000005SeedPayWalletMenu{},
-		// 对齐 yudao 口径：补字段、改枚举类型、修正历史状态值、补字典
-		&migrations.M20261023000011AlterPayWalletTransactionBizType{},
+		// 修正历史状态值为 yudao 口径；字段与索引已并入各建表迁移
 		&migrations.M20261023000012AlignPayStatusValues{},
-		&migrations.M20261023000013AddPayCompositeIndexes{},
 		&migrations.M20261023000014SeedPayDicts{},
-		&migrations.M20261023000015WidenPayOrderTextColumns{},
 
 		// 订单模块：交易域核心表、字典与菜单
 		&migrations.M20261023000020CreateCaterOrderTable{},
@@ -149,20 +145,11 @@ func Migrations() []schema.Migration {
 		&migrations.M20261023000024CreateCaterCartTable{},
 		&migrations.M20261023000025SeedOrderDicts{},
 		&migrations.M20261023000026SeedOrderMenu{},
-		// 放宽订单状态列：百位段位状态超出 tinyint 范围
-		&migrations.M20261023000039WidenOrderStatusColumns{},
-		// 补记订单实际使用的积分数：结算与退款都按此数出入，避免兑换比例调整后错账
-		&migrations.M20261023000041AddOrderPointsUsed{},
-		// 补放订单日志原状态列：上一个迁移漏改 from_status，写日志会溢出
-		&migrations.M20261023000042WidenOrderLogFromStatus{},
-		// 订单后台经营字段：商家备注、改价差额、骑手与派单时间
-		&migrations.M20261023000044AddOrderAdminFields{},
 		// 备注 / 改价 / 派单三个按钮权限点
 		&migrations.M20261023000045SeedOrderOpsMenu{},
 		// 会员收货地址后台维护按钮
 		&migrations.M20261023000046SeedMemberAddressMenu{},
-		// 退款审核字段与审核按钮：退款改为可先申请、再审核放款
-		&migrations.M20261023000047AddPayRefundAuditFields{},
+		// 退款审核按钮：退款改为可先申请、再审核放款
 		&migrations.M20261023000048SeedPayRefundAuditMenu{},
 
 		// 营销模块：优惠券模板、会员券、活动与名额、积分规则，附字典与菜单

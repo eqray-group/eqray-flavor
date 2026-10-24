@@ -28,7 +28,7 @@ CREATE TABLE pay_order_extension (
   channel_code        varchar(32)   NOT NULL COMMENT '渠道编码',
   user_ip             varchar(50)   NOT NULL DEFAULT '' COMMENT '用户 IP',
   status              tinyint       NOT NULL DEFAULT 0 COMMENT '支付状态',
-  channel_extras      varchar(256)  NOT NULL DEFAULT '' COMMENT '渠道额外参数',
+  channel_extras      varchar(1024) NOT NULL DEFAULT '' COMMENT '渠道额外参数 JSON，如二维码链接、调起参数',
   channel_error_code  varchar(128)  NOT NULL DEFAULT '' COMMENT '渠道调用错误码',
   channel_error_msg   varchar(256)  NOT NULL DEFAULT '' COMMENT '渠道调用错误信息',
   channel_notify_data varchar(4096) NOT NULL DEFAULT '' COMMENT '渠道异步通知原文',
