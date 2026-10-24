@@ -19,6 +19,12 @@ func init() {
 		// any other location as required by the application or its packages.
 		"name": config.Env("APP_NAME", "Goravel"),
 
+		// Application URL
+		//
+		// 服务对外可访问的地址，如 https://api.example.com。
+		// 支付渠道的异步通知地址以它为前缀拼装，生产环境必须是对外可访问的 HTTPS 域名。
+		"url": config.Env("APP_URL", ""),
+
 		// Application Environment
 		//
 		// This value determines the "environment" your application is currently

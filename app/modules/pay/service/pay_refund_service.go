@@ -617,10 +617,10 @@ func decoratePayRefund(m model.PayRefundModel) PayRefundRow {
 	}
 }
 
-// channelRefundNotifyURL 生成渠道退款通知地址：{pay.notify_base_url}/api/v1/pay/callbacks/refund/{渠道主键}。
+// channelRefundNotifyURL 生成渠道退款通知地址：{APP_URL}/api/v1/pay/callbacks/refund/{渠道主键}。
 // 入参：渠道主键；返回完整地址，未配置基础地址时返回空串（微信会回落到商户平台配置）。
 func channelRefundNotifyURL(channelID types.ID) string {
-	base := strings.TrimRight(facades.Config().GetString("pay.notify_base_url", ""), "/")
+	base := payNotifyBase()
 	if base == "" {
 		return ""
 	}

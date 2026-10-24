@@ -202,7 +202,7 @@ func (s *PayOrderService) Create(ctx context.Context, in PayOrderCreateInput) (*
 		return nil, err
 	}
 	if channelNotifyURL(channel.ID) == "" {
-		return nil, baseErrs.WithMsg(baseErrs.BadRequest, "未配置支付回调基础地址 PAY_NOTIFY_BASE_URL")
+		return nil, baseErrs.WithMsg(baseErrs.BadRequest, "未配置服务地址 APP_URL，支付回调无法拼装，请先在环境变量中配置")
 	}
 
 	order := &model.PayOrderModel{
@@ -504,7 +504,7 @@ func (s *PayOrderService) submitToChannel(ctx context.Context, order *model.PayO
 	// 渠道回调必须回到本模块，业务侧回调地址由 app.order_notify_url 在通知任务里使用
 	callbackURL := channelNotifyURL(channel.ID)
 	if callbackURL == "" {
-		return nil, baseErrs.WithMsg(baseErrs.BadRequest, "未配置支付回调基础地址 PAY_NOTIFY_BASE_URL")
+		return nil, baseErrs.WithMsg(baseErrs.BadRequest, "未配置服务地址 APP_URL，支付回调无法拼装，请先在环境变量中配置")
 	}
 
 	extension := &model.PayOrderExtensionModel{
@@ -654,10 +654,26 @@ func calcChannelFeePrice(price int64, feeRate float64) int64 {
 	return int64(math.Round(float64(price) * feeRate / 100))
 }
 
-// channelNotifyURL 生成渠道异步通知地址：{pay.notify_base_url}/api/v1/pay/callbacks/order/{渠道主键}。
+// payNotifyBase 返回渠道回调的基础地址，取 APP_URL（config app.url）。
+// 入参：无；返回去掉尾部斜杠的地址，未配置或生产环境填了本机地址时返回空串。
+// 生产环境拒绝本机地址：回调地址写错比没配更难排查——支付能成功，但渠道永远通知不到我们。
+func payNotifyBase() string {
+	base := strings.TrimRight(strings.TrimSpace(facades.Config().GetString("app.url", "")), "/")
+	if base == "" {
+		return ""
+	}
+	if facades.Config().GetString("app.env") == "production" &&
+		(strings.Contains(base, "localhost") || strings.Contains(base, "127.0.0.1")) {
+		return ""
+	}
+
+	return base
+}
+
+// channelNotifyURL 生成渠道异步通知地址：{APP_URL}/api/v1/pay/callbacks/order/{渠道主键}。
 // 入参：渠道主键；返回完整地址，未配置基础地址时返回空串。
 func channelNotifyURL(channelID types.ID) string {
-	base := strings.TrimRight(facades.Config().GetString("pay.notify_base_url", ""), "/")
+	base := payNotifyBase()
 	if base == "" {
 		return ""
 	}
